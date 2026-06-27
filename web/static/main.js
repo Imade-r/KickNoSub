@@ -1952,6 +1952,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!overlay) return;
 
         function isAdBlockActive() {
+            // Si Adsterra a chargé au moins une iframe dans un slot → pas d'adblock
+            const slots = document.querySelectorAll('.ad-slot');
+            for (const slot of slots) {
+                if (slot.querySelector('iframe')) return false;
+            }
+            // Sinon on vérifie le bait element comme signal secondaire
             const bait = document.getElementById('ad-bait');
             if (!bait) return false;
             const cs = window.getComputedStyle(bait);
@@ -1974,10 +1980,10 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.style.overflow = '';
         }
 
-        // Première vérification après 800ms (laisser les scripts charger)
+        // Première vérification après 3s (laisser Adsterra injecter ses iframes)
         setTimeout(() => {
             if (isAdBlockActive()) showOverlay();
-        }, 800);
+        }, 3000);
 
         // Vérification périodique toutes les 3s (si l'user active son adblock en cours de session)
         setInterval(() => {
