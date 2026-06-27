@@ -1942,9 +1942,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ════════════════════════════════════════════
-    // ANTI-ADBLOCK
+    // ANTI-ADBLOCK (désactivé — scripts pub retirés temporairement)
     // ════════════════════════════════════════════
-    (function initAntiAdblock() {
+    (function initAntiAdblock() { return; // désactivé
+    {
         const overlay = document.getElementById('anti-adblock-overlay');
         const btn     = document.getElementById('anti-adblock-btn');
         const errMsg  = document.getElementById('anti-adblock-error');

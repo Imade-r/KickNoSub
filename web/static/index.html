@@ -31,30 +31,6 @@
 	<link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
 	
 
-    <script>
-    // Bloquer les popups/popunders injectés par les régies pub AVANT leur chargement
-    (function() {
-        var _open = window.open;
-        window.open = function(url) {
-            if (!url) return _open.apply(this, arguments);
-            var u = String(url);
-            if (u.indexOf(location.hostname) >= 0 || u === '' || u === 'about:blank') {
-                return _open.apply(this, arguments);
-            }
-            return null; // bloquer tout popup externe (Adsterra popunder, etc.)
-        };
-        // Empêcher les scripts pub de manipuler l'historique du navigateur
-        var _push = history.pushState.bind(history);
-        history.pushState = function(state, title, url) {
-            if (!url) return _push(state, title, url);
-            var u = String(url);
-            if (u.startsWith('/') || u.startsWith(location.origin)) {
-                return _push(state, title, url);
-            }
-            // Bloquer les pushState vers des URLs externes (réseaux pub)
-        };
-    })();
-    </script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="manifest" href="/static/manifest.json" />
@@ -327,20 +303,8 @@
                         </a>
                     </div>
 
-                    <!-- Main Ad Slot (Banner 728x90) -->
-                    <div class="ad-slot ad-slot-main">
-                        <span class="ad-label">Publicité</span>
-                        <script>
-                          atOptions = {
-                            'key' : '1910c896c9effc701a185b77c77d6584',
-                            'format' : 'iframe',
-                            'height' : 90,
-                            'width' : 728,
-                            'params' : {}
-                          };
-                        </script>
-                        <script src="https://www.highperformanceformat.com/1910c896c9effc701a185b77c77d6584/invoke.js"></script>
-                    </div>
+                    <!-- Main Ad Slot (Banner 728x90) - [AD CODE HERE] -->
+                    <div class="ad-slot ad-slot-main" style="display:none"></div>
                 </div>
             </div>
 
@@ -353,20 +317,8 @@
                     </div>
                 </div>
 
-                <!-- Chat Ad Slot (ancrée en bas, discrète) -->
-                <div class="ad-slot ad-slot-sidebar">
-                    <span class="ad-label">Publicité</span>
-                    <script>
-                      atOptions = {
-                        'key' : '363082905c7680ce227ee640a96a17ca',
-                        'format' : 'iframe',
-                        'height' : 250,
-                        'width' : 300,
-                        'params' : {}
-                      };
-                    </script>
-                    <script src="https://www.highperformanceformat.com/363082905c7680ce227ee640a96a17ca/invoke.js"></script>
-                </div>
+                <!-- Chat Ad Slot (300x250) - [AD CODE HERE] -->
+                <div class="ad-slot ad-slot-sidebar" style="display:none"></div>
             </div>
         </div>
     </section>
