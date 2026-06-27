@@ -6523,3 +6523,150 @@ video::-webkit-media-controls-panel { display: none !important; }
         justify-content: center;
     }
 }
+
+/* ═══════════════════════════════════════════
+   ANTI-ADBLOCK OVERLAY
+═══════════════════════════════════════════ */
+#anti-adblock-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: rgba(6, 6, 10, 0.97);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.anti-adblock-card {
+    background: linear-gradient(145deg, rgba(20, 20, 30, 0.98), rgba(10, 10, 18, 0.99));
+    border: 1px solid rgba(83, 252, 24, 0.25);
+    border-radius: 20px;
+    padding: 40px 36px;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 0 60px rgba(83, 252, 24, 0.08), 0 20px 60px rgba(0,0,0,0.6);
+    animation: fadeInScale 0.3s ease-out;
+}
+
+.anti-adblock-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 24px;
+    background: rgba(255, 60, 60, 0.12);
+    border: 2px solid rgba(255, 60, 60, 0.3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ff4c4c;
+}
+
+.anti-adblock-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0 0 12px;
+    color: var(--text-primary);
+}
+
+.anti-adblock-desc {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0 0 28px;
+}
+
+.anti-adblock-desc strong {
+    color: var(--text-primary);
+}
+
+.anti-adblock-steps {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.anti-adblock-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.anti-adblock-step strong { color: var(--text-primary); }
+
+.anti-adblock-step-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    color: #000;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+}
+
+.anti-adblock-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, var(--accent-primary), #3dd10e);
+    color: #000;
+    font-weight: 700;
+    font-size: 1rem;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 28px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 20px rgba(83, 252, 24, 0.35);
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 14px;
+}
+
+.anti-adblock-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(83, 252, 24, 0.5);
+}
+
+.anti-adblock-error {
+    color: #ff4c4c;
+    font-size: 0.875rem;
+    margin: 0 0 12px;
+}
+
+.anti-adblock-reload {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    width: 100%;
+    margin-bottom: 14px;
+    transition: background 0.2s;
+}
+
+.anti-adblock-reload:hover { background: rgba(255,255,255,0.14); }
+
+.anti-adblock-footer {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.25);
+    margin: 0;
+}

@@ -1941,6 +1941,63 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => fetchStreamUrl(vodFromUrl), 300);
     }
 
+    // ════════════════════════════════════════════
+    // ANTI-ADBLOCK
+    // ════════════════════════════════════════════
+    (function initAntiAdblock() {
+        const overlay = document.getElementById('anti-adblock-overlay');
+        const btn     = document.getElementById('anti-adblock-btn');
+        const errMsg  = document.getElementById('anti-adblock-error');
+        const reloadBtn = document.getElementById('anti-adblock-reload');
+        if (!overlay) return;
+
+        function isAdBlockActive() {
+            const bait = document.getElementById('ad-bait');
+            if (!bait) return false;
+            const cs = window.getComputedStyle(bait);
+            return (
+                bait.offsetHeight === 0 ||
+                bait.offsetWidth  === 0 ||
+                cs.display         === 'none' ||
+                cs.visibility      === 'hidden' ||
+                parseFloat(cs.opacity) === 0
+            );
+        }
+
+        function showOverlay() {
+            overlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function hideOverlay() {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        // Première vérification après 800ms (laisser les scripts charger)
+        setTimeout(() => {
+            if (isAdBlockActive()) showOverlay();
+        }, 800);
+
+        // Vérification périodique toutes les 3s (si l'user active son adblock en cours de session)
+        setInterval(() => {
+            if (isAdBlockActive()) {
+                if (overlay.style.display === 'none') showOverlay();
+            } else {
+                if (overlay.style.display !== 'none') hideOverlay();
+            }
+        }, 3000);
+
+        btn?.addEventListener('click', () => {
+            if (!isAdBlockActive()) {
+                hideOverlay();
+            } else {
+                if (errMsg)   { errMsg.style.display = 'block'; }
+                if (reloadBtn){ reloadBtn.style.display = 'block'; }
+            }
+        });
+    })();
+
     updateFavBadge();
     showView('home-view');
     if (window.setLanguage) window.setLanguage('fr');
