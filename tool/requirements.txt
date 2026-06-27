@@ -1,0 +1,4 @@
+kickapi
+rich
+questionary
+cloudscraper
