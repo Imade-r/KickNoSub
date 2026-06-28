@@ -520,6 +520,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
                     else hls.destroy();
                 });
+
+                // Aperçu image au survol de la barre (clips exclus : pas de scrubbing utile)
+                if (!isClip) setupSeekPreview(m3u8Url);
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = m3u8Url;
                 video.addEventListener('loadedmetadata', () => {
@@ -672,6 +675,88 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sidebar) sidebar.style.height = '';
     }
 
+    // ── Aperçu vidéo au survol de la barre de progression ───────────────────
+    // 2e flux HLS caché (qualité la plus basse) qu'on déplace à la position
+    // survolée pour en dessiner la frame. Cache par tranches de 5 s + coalescing
+    // des seeks pour rester léger. Desktop + HLS uniquement.
+    let previewHls        = null;
+    let previewVideo      = null;
+    let previewReady      = false;
+    let previewSeeking    = false;
+    let previewWantedTime = -1;
+    const previewCache    = new Map();   // bucket -> canvas hors-écran
+    const PREVIEW_BUCKET  = 5;           // granularité du cache, en secondes
+
+    function setupSeekPreview(m3u8Url) {
+        destroySeekPreview();
+        if (window.innerWidth <= 768 || typeof Hls === 'undefined' || !Hls.isSupported()) return;
+
+        previewVideo = document.createElement('video');
+        previewVideo.muted       = true;
+        previewVideo.preload     = 'auto';
+        previewVideo.playsInline = true;
+        previewVideo.crossOrigin = 'anonymous';
+        previewVideo.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;';
+        document.body.appendChild(previewVideo);
+
+        previewHls = new Hls({ maxBufferLength: 4, maxMaxBufferLength: 8 });
+        previewHls.loadSource(m3u8Url);
+        previewHls.attachMedia(previewVideo);
+        previewHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            const levels = previewHls.levels || [];
+            if (levels.length) {                       // qualité la plus basse = vignettes rapides
+                let lowest = 0;
+                levels.forEach((l, i) => { if ((l.height || 1e9) < (levels[lowest].height || 1e9)) lowest = i; });
+                previewHls.currentLevel = lowest;
+            }
+            previewReady = true;
+        });
+        previewHls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) destroySeekPreview(); });
+        previewVideo.addEventListener('seeked', onPreviewSeeked);
+    }
+
+    function onPreviewSeeked() {
+        drawPreviewFrame(previewVideo.currentTime);
+        previewSeeking = false;
+        if (previewWantedTime >= 0 && Math.abs(previewWantedTime - previewVideo.currentTime) > 1) {
+            requestPreviewAt(previewWantedTime);     // coalescing : rejoint la dernière position
+        }
+    }
+
+    function drawPreviewFrame(time) {
+        const canvas = document.getElementById('seek-preview-canvas');
+        if (!canvas || !previewVideo || !previewVideo.videoWidth) return;
+        try {
+            canvas.getContext('2d').drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+            const off = document.createElement('canvas');
+            off.width = canvas.width; off.height = canvas.height;
+            off.getContext('2d').drawImage(canvas, 0, 0);   // opérations d'affichage : OK même si canvas taché
+            previewCache.set(Math.floor(time / PREVIEW_BUCKET), off);
+            if (previewCache.size > 80) previewCache.delete(previewCache.keys().next().value);
+        } catch (_) {}
+    }
+
+    function requestPreviewAt(time) {
+        if (!previewReady || !previewVideo) return;
+        const canvas = document.getElementById('seek-preview-canvas');
+        const cached = previewCache.get(Math.floor(time / PREVIEW_BUCKET));
+        if (cached && canvas) { canvas.getContext('2d').drawImage(cached, 0, 0); return; }
+        previewWantedTime = time;
+        if (previewSeeking) return;
+        previewSeeking = true;
+        try { previewVideo.currentTime = time; } catch (_) { previewSeeking = false; }
+    }
+
+    function destroySeekPreview() {
+        previewReady = false; previewSeeking = false; previewWantedTime = -1;
+        previewCache.clear();
+        previewVideo?.removeEventListener('seeked', onPreviewSeeked);
+        try { previewHls?.destroy(); } catch (_) {}
+        previewHls = null;
+        previewVideo?.remove();
+        previewVideo = null;
+    }
+
     function setupPlayerControls() {
         const wrapper = document.getElementById('video-wrapper-container');
         if (!wrapper || wrapper.querySelector('#player-overlay')) return;
@@ -697,6 +782,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="player-seek-thumb"    id="seek-thumb"></div>
                     </div>
                     <div class="player-seek-tooltip" id="seek-tooltip">0:00</div>
+                    <div class="seek-preview" id="seek-preview" aria-hidden="true">
+                        <canvas id="seek-preview-canvas" width="160" height="90"></canvas>
+                        <span class="seek-preview-time" id="seek-preview-time">0:00</span>
+                    </div>
                 </div>
                 <div class="player-controls-row">
                     <div class="player-controls-left">
@@ -843,19 +932,35 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('mousemove', onDocMove);
         document.addEventListener('mouseup',   onDocUp);
 
-        // Tooltip on hover
+        // Tooltip + aperçu image au survol
+        const previewBox = $('seek-preview');
         seekCont?.addEventListener('mousemove', e => {
-            if (!video?.duration || !seekTooltip) return;
+            if (!video?.duration) return;
             const pct  = pctFromMouse(e);
             const rect = seekCont.getBoundingClientRect();
             const x    = pct * rect.width;
-            const half = seekTooltip.offsetWidth / 2;
-            seekTooltip.style.left    = Math.max(half, Math.min(rect.width - half, x)) + 'px';
-            seekTooltip.textContent   = formatTime(pct * video.duration);
-            seekTooltip.style.opacity = '1';
+            const t    = pct * video.duration;
+
+            if (previewVideo && previewReady && previewBox) {
+                // Aperçu vidéo : on dessine la frame et on affiche le temps dans la boîte
+                requestPreviewAt(t);
+                const pw = previewBox.offsetWidth || 160;
+                previewBox.style.left = Math.max(pw / 2, Math.min(rect.width - pw / 2, x)) + 'px';
+                previewBox.style.opacity = '1';
+                const tl = document.getElementById('seek-preview-time');
+                if (tl) tl.textContent = formatTime(t);
+                if (seekTooltip) seekTooltip.style.opacity = '0';
+            } else if (seekTooltip) {
+                // Repli : tooltip de temps seul (mobile, clips, Safari natif, aperçu pas prêt)
+                const half = seekTooltip.offsetWidth / 2;
+                seekTooltip.style.left    = Math.max(half, Math.min(rect.width - half, x)) + 'px';
+                seekTooltip.textContent   = formatTime(t);
+                seekTooltip.style.opacity = '1';
+            }
         });
         seekCont?.addEventListener('mouseleave', () => {
             if (seekTooltip) seekTooltip.style.opacity = '0';
+            if (previewBox)  previewBox.style.opacity  = '0';
         });
 
         // Touch seek
@@ -1114,6 +1219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function goBackHome() {
         chatActiveSession++;
         hls?.destroy(); hls = null;
+        destroySeekPreview();
         if (video) video.src = '';
 
         playerCleanup?.();
