@@ -1036,14 +1036,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('keydown', onKeyDown);
 
         // ── Double-clic = plein écran ───────────────
-        // Attaché à la zone vidéo uniquement : double-cliquer un bouton de contrôle
-        // ne doit PAS basculer le plein écran (les contrôles sont des frères de la zone).
-        const clickZone = $('player-click-zone');
+        // Attaché au wrapper (capte le double-clic même quand les 2 clics tombent
+        // sur des éléments différents — ex. le bouton central qui apparaît à la pause).
+        // On ignore seulement la barre de contrôles du bas : double-cliquer play/pause,
+        // muet, vitesse, etc. ne doit PAS basculer le plein écran.
         const onDblClick = e => {
-            if (e.target.closest('.player-ctrl-btn, .player-center-play, .player-bottom-controls, .player-speed-menu')) return;
+            if (e.target.closest('.player-bottom-controls')) return;
             onFsClick();
         };
-        clickZone?.addEventListener('dblclick', onDblClick);
+        wrapper.addEventListener('dblclick', onDblClick);
 
         showControls();
 
@@ -1055,7 +1056,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.removeEventListener('click',            onDocClickSpeed);
             wrapper.removeEventListener('mousemove',  onWrapperMove);
             wrapper.removeEventListener('mouseleave', onWrapperLeave);
-            clickZone?.removeEventListener('dblclick', onDblClick);
+            wrapper.removeEventListener('dblclick', onDblClick);
             video?.removeEventListener('play',           onPlay);
             video?.removeEventListener('pause',          onPause);
             video?.removeEventListener('timeupdate',     onTimeUpdate);
