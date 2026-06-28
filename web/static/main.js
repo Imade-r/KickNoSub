@@ -996,8 +996,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('keydown', onKeyDown);
 
         // ── Double-clic = plein écran ───────────────
-        const onDblClick = () => onFsClick();
-        wrapper.addEventListener('dblclick', onDblClick);
+        // Attaché à la zone vidéo uniquement : double-cliquer un bouton de contrôle
+        // ne doit PAS basculer le plein écran (les contrôles sont des frères de la zone).
+        const clickZone = $('player-click-zone');
+        const onDblClick = e => {
+            if (e.target.closest('.player-ctrl-btn, .player-center-play, .player-bottom-controls, .player-speed-menu')) return;
+            onFsClick();
+        };
+        clickZone?.addEventListener('dblclick', onDblClick);
 
         showControls();
 
@@ -1009,7 +1015,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.removeEventListener('click',            onDocClickSpeed);
             wrapper.removeEventListener('mousemove',  onWrapperMove);
             wrapper.removeEventListener('mouseleave', onWrapperLeave);
-            wrapper.removeEventListener('dblclick',   onDblClick);
+            clickZone?.removeEventListener('dblclick', onDblClick);
             video?.removeEventListener('play',           onPlay);
             video?.removeEventListener('pause',          onPause);
             video?.removeEventListener('timeupdate',     onTimeUpdate);
