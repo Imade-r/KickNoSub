@@ -645,8 +645,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Garde d'idempotence : si déjà synchronisé, ne rien écrire. Ça casse la
         // boucle du ResizeObserver (nos écritures ne déclenchent pas de nouveau cycle).
         if (parseInt(sidebar.style.height, 10) === card.offsetHeight) return;
+        // La hauteur est une valeur de layout pilotée en JS : on coupe la transition
+        // pour qu'elle s'applique instantanément (sinon le chat « grandit » à chaque synchro).
+        const prevTransition = sidebar.style.transition;
+        sidebar.style.transition = 'none';
         sidebar.style.height = '0px';                     // n'inflige pas sa hauteur à la rangée
-        sidebar.style.height = card.offsetHeight + 'px';  // épouse la carte (force un reflow)
+        sidebar.style.height = card.offsetHeight + 'px';  // épouse la carte
+        void sidebar.offsetHeight;                        // commit le reflow sans animation
+        sidebar.style.transition = prevTransition;
     }
     function startChatHeightSync() {
         const card = document.querySelector('.player-card');

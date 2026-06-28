@@ -31,7 +31,10 @@
 	<link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
 	
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://files.kick.com" crossorigin />
+    <link rel="dns-prefetch" href="https://stream.kick.com" />
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1" defer></script>
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="manifest" href="/static/manifest.json" />
     <meta name="theme-color" content="#06060a" />
@@ -452,8 +455,7 @@
     </div>
 </div>
 
-<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-<script src="/static/lang.js"></script>
-<script src="/static/main.js"></script>
+<script src="/static/lang.js" defer></script>
+<script src="/static/main.js" defer></script>
 </body>
 </html>

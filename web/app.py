@@ -8,7 +8,43 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 app = Flask(__name__, static_folder='static')
+
+# Limite la taille des corps de requête (anti-abus / déni de service).
+app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 Ko
+
+# Compression gzip des réponses texte (HTML/CSS/JS/JSON) si flask-compress est dispo.
+# Import optionnel : l'app fonctionne même sans le paquet installé.
+try:
+    from flask_compress import Compress
+    Compress(app)
+except Exception:
+    pass
+
 scraper = cloudscraper.create_scraper()
+
+# Extensions statiques que l'on peut mettre en cache long (elles changent rarement).
+_LONG_CACHE_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf')
+
+
+@app.after_request
+def add_security_and_cache_headers(response):
+    # ── En-têtes de sécurité ──────────────────────────────────
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+    response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
+
+    # ── Cache : médias en cache long ; code (HTML/JS/CSS) revalidé pour éviter le stale ──
+    path = request.path or ''
+    if path.endswith(_LONG_CACHE_EXT):
+        response.headers.setdefault('Cache-Control', 'public, max-age=604800')  # 7 jours
+    elif path.startswith('/api/'):
+        response.headers.setdefault('Cache-Control', 'no-store')
+    else:
+        # index.html, main.js, style.css… : revalidation via ETag (304), jamais périmé.
+        response.headers.setdefault('Cache-Control', 'no-cache')
+    return response
 
 # ── Cache mémoire TTL pour les infos de chaîne ──
 _channel_cache = {}
@@ -201,12 +237,19 @@ def get_stream():
 
 @app.route('/api/chat', methods=['GET'])
 def get_chat():
-    channel_id = request.args.get('channel_id')
-    start_time = request.args.get('start_time')
-    
+    channel_id = request.args.get('channel_id', '')
+    start_time = request.args.get('start_time', '')
+
     if not channel_id or not start_time:
         return jsonify({"error": "Missing parameters"}), 400
-        
+
+    # Validation stricte : empêche toute injection dans l'URL kick.com.
+    # channel_id est un identifiant numérique ; start_time est une date ISO 8601.
+    if not re.fullmatch(r'\d{1,15}', channel_id):
+        return jsonify({"error": "Invalid channel_id"}), 400
+    if not re.fullmatch(r'[0-9T:\-.Z+]{1,40}', start_time):
+        return jsonify({"error": "Invalid start_time"}), 400
+
     url = f"https://kick.com/api/v2/channels/{channel_id}/messages?start_time={start_time}"
     try:
         res = scraper.get(url, timeout=10)
@@ -219,6 +262,9 @@ def get_streamer_vods():
     slug = request.args.get('slug', '').strip().lower()
     if not slug:
         return jsonify({"error": "Nom du streamer manquant"}), 400
+    # Pseudos Kick : lettres, chiffres, tirets et underscores uniquement.
+    if not re.fullmatch(r'[a-z0-9_-]{1,30}', slug):
+        return jsonify({"error": "Nom de streamer invalide"}), 400
 
     channel = get_kick_channel_info(slug)
     if not channel:
