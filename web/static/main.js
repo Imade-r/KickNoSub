@@ -576,6 +576,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             startChatLoop(chatActiveSession);
         }
+
+        startChatHeightSync();
     }
 
     // ── Resume Prompt ───────────────────────
@@ -624,6 +626,45 @@ document.addEventListener('DOMContentLoaded', () => {
         theater:`<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M19 7H5c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm0 10H5V9h14v8z"/></svg>`,
         share:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
     };
+
+    // ── Synchronise la hauteur du chat sur celle de la carte vidéo ──────────
+    // Le chat est un flex-item frère de la carte. Sa hauteur intrinsèque (= tous
+    // les messages) gonflerait la rangée à l'infini, car le conteneur a une
+    // hauteur auto. On fixe donc sa hauteur sur celle de la carte (bornée), et
+    // les messages défilent à l'intérieur.
+    let chatHeightObserver = null;
+    function syncChatHeight() {
+        const sidebar = document.getElementById('vod-chat-sidebar');
+        const card    = document.querySelector('.player-card');
+        if (!sidebar || !card) return;
+        // Mode cinéma (géré en CSS) et mobile empilé : pas de hauteur figée.
+        if (playerSection?.classList.contains('theater-mode') || window.innerWidth <= 768) {
+            if (sidebar.style.height) sidebar.style.height = '';
+            return;
+        }
+        // Garde d'idempotence : si déjà synchronisé, ne rien écrire. Ça casse la
+        // boucle du ResizeObserver (nos écritures ne déclenchent pas de nouveau cycle).
+        if (parseInt(sidebar.style.height, 10) === card.offsetHeight) return;
+        sidebar.style.height = '0px';                     // n'inflige pas sa hauteur à la rangée
+        sidebar.style.height = card.offsetHeight + 'px';  // épouse la carte (force un reflow)
+    }
+    function startChatHeightSync() {
+        const card = document.querySelector('.player-card');
+        if (!card) return;
+        syncChatHeight();
+        if ('ResizeObserver' in window && !chatHeightObserver) {
+            chatHeightObserver = new ResizeObserver(() => syncChatHeight());
+            chatHeightObserver.observe(card);
+        }
+        window.addEventListener('resize', syncChatHeight);
+    }
+    function stopChatHeightSync() {
+        chatHeightObserver?.disconnect();
+        chatHeightObserver = null;
+        window.removeEventListener('resize', syncChatHeight);
+        const sidebar = document.getElementById('vod-chat-sidebar');
+        if (sidebar) sidebar.style.height = '';
+    }
 
     function setupPlayerControls() {
         const wrapper = document.getElementById('video-wrapper-container');
@@ -939,11 +980,10 @@ document.addEventListener('DOMContentLoaded', () => {
             playerSection?.classList.toggle('theater-mode');
             document.body.classList.toggle('theater-mode-active', entering);
             theaterBtn?.classList.toggle('theater-active', entering);
-            if (!entering) {
-                const sidebar = document.getElementById('vod-chat-sidebar');
-                if (sidebar) sidebar.style.height = '';
-            }
-            
+            // En cinéma : la hauteur est gérée en CSS (on efface l'inline).
+            // En sortie : on réaccroche la hauteur du chat sur la carte.
+            syncChatHeight();
+
             if (entering) showTheaterHint();
         }
         theaterBtn?.addEventListener('click', toggleTheater);
@@ -1071,6 +1111,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         playerCleanup?.();
         playerCleanup = null;
+        stopChatHeightSync();
         document.getElementById('player-overlay')?.remove();
         playerSection?.classList.remove('theater-mode');
         document.body.classList.remove('theater-mode-active');
