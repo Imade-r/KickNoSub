@@ -739,6 +739,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         // Prêt quand la durée est connue ; on lance alors la construction du storyboard.
         previewVideo.addEventListener('loadedmetadata', () => { previewReady = true; pumpPreview(); });
+        document.addEventListener('visibilitychange', onPreviewVisibility);
         // Récupération sur erreur plutôt que destruction immédiate (transitoires réseau).
         previewHls.on(Hls.Events.ERROR, (_, d) => {
             if (!d.fatal) return;
@@ -846,10 +847,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // storyboard en tâche de fond (-> survols futurs instantanés). S'auto-relance.
     function pumpPreview() {
         if (previewSeeking || !previewReady || !previewVideo || !previewVideo.duration) return;
+        if (document.hidden) return;   // onglet en arrière-plan : on n'extrait rien (bande passante)
         if (previewWantedKey >= 0 && !previewCache.has(previewWantedKey)) { seekToKey(previewWantedKey); return; }
         const bg = nextBgKey();
         if (bg >= 0) seekToKey(bg);
     }
+
+    // Reprend la construction du storyboard quand l'onglet redevient visible.
+    function onPreviewVisibility() { if (!document.hidden) pumpPreview(); }
 
     function destroySeekPreview() {
         previewReady = false; previewSeeking = false; previewErrCount = 0;
@@ -858,11 +863,49 @@ document.addEventListener('DOMContentLoaded', () => {
         previewBgOrder = null; previewBgIdx = 0;
         clearTimeout(previewSeekTimer);
         previewCache.clear();
+        document.removeEventListener('visibilitychange', onPreviewVisibility);
         previewVideo?.removeEventListener('seeked', onPreviewSeeked);
         try { previewHls?.destroy(); } catch (_) {}
         previewHls = null;
         previewVideo?.remove();
         previewVideo = null;
+    }
+
+    // ── Overlay d'aide des raccourcis clavier (touche ?) ────────────────────
+    function toggleShortcutsHelp(force) {
+        const existing = document.getElementById('shortcuts-overlay');
+        const show = force === undefined ? !existing : force;
+        if (!show) { existing?.remove(); return; }
+        if (existing) return;
+        const rows = [
+            ['Espace / K', 'Lecture / Pause'],
+            ['&larr; / &rarr;', 'Reculer / Avancer de 10 s'],
+            ['&uarr; / &darr;', 'Volume + / &minus;'],
+            ['0 &ndash; 9', 'Aller à 0 % … 90 %'],
+            ['F', 'Plein écran'],
+            ['M', 'Couper le son'],
+            ['P', 'Picture-in-Picture'],
+            ['T', 'Mode cinéma'],
+            ['V', 'Vitesse de lecture'],
+            ['Double-clic', 'Plein écran (sur la vidéo)'],
+            ['Échap', 'Quitter cinéma / fermer'],
+            ['?', 'Afficher cette aide'],
+        ];
+        const ov = document.createElement('div');
+        ov.id = 'shortcuts-overlay';
+        ov.className = 'shortcuts-overlay';
+        ov.innerHTML = `
+            <div class="shortcuts-card">
+                <button class="shortcuts-close" aria-label="Fermer">&times;</button>
+                <h3>Raccourcis clavier</h3>
+                <div class="shortcuts-grid">
+                    ${rows.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}
+                </div>
+            </div>`;
+        ov.addEventListener('click', e => {
+            if (e.target === ov || e.target.closest('.shortcuts-close')) toggleShortcutsHelp(false);
+        });
+        document.body.appendChild(ov);
     }
 
     function setupPlayerControls() {
@@ -1238,8 +1281,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'm': case 'M': e.preventDefault(); onMuteClick(); break;
                 case 'p': case 'P': e.preventDefault(); $('pip-btn')?.click(); break;
                 case 't': case 'T': e.preventDefault(); toggleTheater(); break;
+                case '?': e.preventDefault(); toggleShortcutsHelp(); break;
                 case 'Escape':
-                    if (playerSection?.classList.contains('theater-mode')) {
+                    if (document.getElementById('shortcuts-overlay')) { e.preventDefault(); toggleShortcutsHelp(false); }
+                    else if (playerSection?.classList.contains('theater-mode')) {
                         e.preventDefault(); toggleTheater();
                     }
                     break;
@@ -1335,6 +1380,7 @@ document.addEventListener('DOMContentLoaded', () => {
         playerCleanup?.();
         playerCleanup = null;
         stopChatHeightSync();
+        document.getElementById('shortcuts-overlay')?.remove();
         document.getElementById('player-overlay')?.remove();
         playerSection?.classList.remove('theater-mode');
         document.body.classList.remove('theater-mode-active');

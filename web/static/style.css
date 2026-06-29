@@ -5364,6 +5364,79 @@ video::-webkit-media-controls-panel { display: none !important; }
     transition: opacity 0.15s;
 }
 
+/* ── Overlay d'aide des raccourcis clavier ── */
+.shortcuts-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.18s ease-out;
+}
+
+.shortcuts-card {
+    position: relative;
+    background: linear-gradient(145deg, rgba(24, 24, 32, 0.98), rgba(14, 14, 20, 0.98));
+    border: 1px solid rgba(83, 252, 24, 0.25);
+    border-radius: 16px;
+    padding: 28px 32px;
+    max-width: 460px;
+    width: calc(100% - 40px);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 40px rgba(83, 252, 24, 0.08);
+    animation: fadeInScale 0.22s ease-out;
+}
+
+.shortcuts-card h3 {
+    margin: 0 0 18px;
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.shortcuts-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px 16px;
+    align-items: center;
+}
+
+.shortcuts-grid kbd {
+    justify-self: start;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+    white-space: nowrap;
+}
+
+.shortcuts-grid span {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.shortcuts-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.shortcuts-close:hover { color: var(--text-primary); }
+
 /* ── Aperçu image au survol de la barre ── */
 .seek-preview {
     position: absolute;
