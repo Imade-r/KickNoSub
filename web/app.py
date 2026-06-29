@@ -607,29 +607,46 @@ def _fetch_streamer_latest_vod(slug):
 @app.route('/api/trending', methods=['GET'])
 def get_trending():
     platform = request.args.get('platform', 'kick')
-    if platform == 'twitch':
-        streamers = ["kai_cenat", "ibai", "auronplay", "rubius", "tommyinnit", "shroud"]
-        trending_vods = []
-        try:
+    lang = request.args.get('lang', 'en').lower()
+
+    # Regional top streamers mapping
+    streamers_db = {
+        'kick': {
+            'fr': ['yassencore', 'aminematue', 'jl_tomy', 'chowh1', 'kamet0', 'teufeurs'],
+            'es': ['juansguarnizo', 'westcol', 'elxokas', 'markito', 'goncho', 'momo'],
+            'pt': ['coringa', 'paulinholoko', 'gaules', 'frttt', 'smurfdomuca', 'boltz'],
+            'en': ['xqc', 'adinross', 'n3on', 'trainwreckstv', 'iceposeidon', 'ac7ionman']
+        },
+        'twitch': {
+            'fr': ['kamet0', 'aminematue', 'gotaga', 'zerator', 'antoinedaniel', 'jl_tomy'],
+            'es': ['auronplay', 'ibai', 'rubius', 'thegrefg', 'illojuan', 'rivers_gg'],
+            'pt': ['gaules', 'casimito', 'alanzoka', 'baiano', 'cellbit', 'gabepeixe'],
+            'en': ['kai_cenat', 'caseoh_', 'tarik', 'jynxzi', 'shroud', 'hasanabi']
+        }
+    }
+
+    # Fallback to English if language not found
+    if lang not in streamers_db[platform]:
+        lang = 'en'
+
+    streamers = streamers_db[platform][lang]
+    trending_vods = []
+
+    try:
+        if platform == 'twitch':
             with ThreadPoolExecutor(max_workers=6) as executor:
                 results = executor.map(twitch.get_streamer_vods, streamers)
             for res in results:
                 if res and isinstance(res, list) and len(res) > 0:
                     trending_vods.append(res[0])
-            return jsonify({"trending": trending_vods}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-    else:
-        streamers = ["xqc", "adinross", "n3on", "yassencore", "balti", "trainwreckstv"]
-        trending_vods = []
-        try:
-            # Récupère les streamers en parallèle pour accélérer
+        else:
             with ThreadPoolExecutor(max_workers=6) as executor:
                 results = executor.map(_fetch_streamer_latest_vod, streamers)
             trending_vods = [v for v in results if v]
-            return jsonify({"trending": trending_vods}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            
+        return jsonify({"trending": trending_vods}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000)

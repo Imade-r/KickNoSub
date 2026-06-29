@@ -1950,7 +1950,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('trending_loading', 'Chargement...')}</div>`;
             try {
-                const res  = await fetch(`/api/trending?platform=${platform}`);
+                const lang = window.currentLang || 'en';
+                const res  = await fetch(`/api/trending?platform=${platform}&lang=${lang}`);
                 const data = await res.json();
                 const vods = data.trending || [];
                 if (!vods.length) { targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">Aucune tendance.</div>`; return; }
