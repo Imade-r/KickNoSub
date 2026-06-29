@@ -1994,7 +1994,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 _trendingLoaded = true;
             } catch (e) {
                 console.error(e);
-                targetGrid.innerHTML = '';
+                targetGrid.innerHTML = `<div class="vods-status vods-error">Erreur de chargement: ${escapeHtml(e.message)}</div>`;
             }
         }
     }
