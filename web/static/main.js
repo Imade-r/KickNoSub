@@ -692,6 +692,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let previewSeekingKey  = -1;   // vignette en cours de chargement
     let previewShownKey    = -1;   // vignette actuellement dessinée
     let previewSeekTimer   = null;
+    let previewBgOrder     = null; // ordre d'extraction de fond (grossier -> fin)
+    let previewBgIdx       = 0;
     const previewCache     = new Map();   // key -> canvas hors-écran
 
     function previewStep() {
@@ -734,8 +736,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 levels.forEach((l, i) => { if ((l.height || 1e9) < (levels[lowest].height || 1e9)) lowest = i; });
                 previewHls.currentLevel = lowest;
             }
-            previewReady = true;
         });
+        // Prêt quand la durée est connue ; on lance alors la construction du storyboard.
+        previewVideo.addEventListener('loadedmetadata', () => { previewReady = true; pumpPreview(); });
         // Récupération sur erreur plutôt que destruction immédiate (transitoires réseau).
         previewHls.on(Hls.Events.ERROR, (_, d) => {
             if (!d.fatal) return;
@@ -752,11 +755,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (canvas && src) { try { canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height); } catch (_) {} }
     }
 
-    // Affiche une vignette si elle est en cache ; sinon laisse la dernière (pas de saut).
+    // Vignette en cache la plus proche d'une position (pour afficher tout de suite
+    // une image approximativement bonne pendant que l'exacte se charge).
+    function nearestCached(key) {
+        let best = null, bestDist = Infinity;
+        for (const k of previewCache.keys()) {
+            const d = Math.abs(k - key);
+            if (d < bestDist) { bestDist = d; best = k; }
+        }
+        return best;
+    }
+
+    // Affiche la vignette exacte si dispo, sinon la plus proche en cache (jamais
+    // bloqué sur une image lointaine). Ne redessine que si la vignette change.
     function showKey(key) {
-        if (key === previewShownKey) return;
-        const cached = previewCache.get(key);
-        if (cached) { drawCanvas(cached); previewShownKey = key; }
+        let k = previewCache.has(key) ? key : nearestCached(key);
+        if (k === null || k === previewShownKey) return;
+        drawCanvas(previewCache.get(k));
+        previewShownKey = k;
     }
 
     function cacheCurrentFrame(key) {
@@ -769,19 +785,44 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
+    function previewTotalBuckets() {
+        const d = previewVideo?.duration || 0;
+        return Math.max(0, Math.floor(Math.max(0, d - 0.2) / previewStep()));
+    }
+
+    // Ordre d'extraction de fond : grossier -> fin (couvre vite toute la barre,
+    // puis affine), pour que la vignette « la plus proche » soit utile rapidement.
+    function buildBgOrder(total) {
+        const order = [], seen = new Set();
+        let stride = 1;
+        while (stride < total) stride *= 2;
+        for (; stride >= 1; stride = Math.floor(stride / 2)) {
+            for (let k = 0; k <= total; k += stride) {
+                if (!seen.has(k)) { seen.add(k); order.push(k); }
+            }
+            if (stride === 1) break;
+        }
+        return order;
+    }
+
+    function nextBgKey() {
+        if (!previewBgOrder) { previewBgOrder = buildBgOrder(previewTotalBuckets()); previewBgIdx = 0; }
+        while (previewBgIdx < previewBgOrder.length && previewCache.has(previewBgOrder[previewBgIdx])) previewBgIdx++;
+        return previewBgIdx < previewBgOrder.length ? previewBgOrder[previewBgIdx] : -1;
+    }
+
     function requestPreviewAt(time) {
         if (!previewReady || !previewVideo || !previewVideo.duration) return;
-        const key = previewKey(time);
-        previewWantedKey = key;
-        if (previewCache.has(key)) { showKey(key); return; }   // cache : instantané
-        if (!previewSeeking) seekToKey(key);                   // sinon on charge (1 seul seek à la fois)
+        previewWantedKey = previewKey(time);
+        showKey(previewWantedKey);            // exacte ou la plus proche : retour immédiat
+        if (!previewSeeking) pumpPreview();   // (re)lance la file de chargement
     }
 
     function seekToKey(key) {
         previewSeeking    = true;
         previewSeekingKey = key;
         clearTimeout(previewSeekTimer);
-        previewSeekTimer = setTimeout(onPreviewSeekTimeout, 1200);   // watchdog : ne pas rester bloqué
+        previewSeekTimer = setTimeout(onPreviewSeekTimeout, 1500);   // watchdog : ne pas rester bloqué
         try { previewVideo.currentTime = previewTimeForKey(key); }
         catch (_) { previewSeeking = false; }
     }
@@ -795,21 +836,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function onPreviewSeekTimeout() {
-        previewSeeking = false;   // le seek traîne : on débloque pour la suite
+        // le seek traîne : on saute cette vignette de fond pour ne pas boucler dessus
+        if (previewBgOrder && previewBgOrder[previewBgIdx] === previewSeekingKey) previewBgIdx++;
+        previewSeeking = false;
         pumpPreview();
     }
 
-    // S'il reste une vignette voulue non servie, on va la chercher.
+    // File de chargement : sert d'abord la position survolée, sinon construit le
+    // storyboard en tâche de fond (-> survols futurs instantanés). S'auto-relance.
     function pumpPreview() {
-        if (previewWantedKey >= 0 && previewWantedKey !== previewSeekingKey && !previewCache.has(previewWantedKey)) {
-            seekToKey(previewWantedKey);
-        }
+        if (previewSeeking || !previewReady || !previewVideo || !previewVideo.duration) return;
+        if (previewWantedKey >= 0 && !previewCache.has(previewWantedKey)) { seekToKey(previewWantedKey); return; }
+        const bg = nextBgKey();
+        if (bg >= 0) seekToKey(bg);
     }
 
     function destroySeekPreview() {
         previewReady = false; previewSeeking = false; previewErrCount = 0;
         previewSrc = null;
         previewWantedKey = previewSeekingKey = previewShownKey = -1;
+        previewBgOrder = null; previewBgIdx = 0;
         clearTimeout(previewSeekTimer);
         previewCache.clear();
         previewVideo?.removeEventListener('seeked', onPreviewSeeked);
