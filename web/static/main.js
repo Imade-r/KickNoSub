@@ -521,8 +521,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     else hls.destroy();
                 });
 
-                // Aperçu image au survol de la barre (clips exclus : pas de scrubbing utile)
-                if (!isClip) setupSeekPreview(m3u8Url);
+                // Aperçu image au survol de la barre : on mémorise juste la source,
+                // le 2e flux n'est créé qu'au premier survol (clips exclus).
+                if (!isClip) armSeekPreview(m3u8Url);
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = m3u8Url;
                 video.addEventListener('loadedmetadata', () => {
@@ -676,20 +677,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Aperçu vidéo au survol de la barre de progression ───────────────────
-    // 2e flux HLS caché (qualité la plus basse) qu'on déplace à la position
-    // survolée pour en dessiner la frame. Cache par tranches de 5 s + coalescing
-    // des seeks pour rester léger. Desktop + HLS uniquement.
-    let previewHls        = null;
-    let previewVideo      = null;
-    let previewReady      = false;
-    let previewSeeking    = false;
-    let previewWantedTime = -1;
-    const previewCache    = new Map();   // bucket -> canvas hors-écran
-    const PREVIEW_BUCKET  = 5;           // granularité du cache, en secondes
+    // 2e flux HLS caché (qualité la plus basse). La vidéo est découpée en
+    // VIGNETTES à intervalle fixe (≈ 1 toutes les 30 s, plus espacé pour les
+    // très longues VOD) : on snap la position survolée sur la vignette la plus
+    // proche, on la met en cache, et on ne redessine QUE lorsqu'elle change
+    // (anti-vacillement). Un watchdog évite de rester figé si un seek traîne.
+    let previewHls         = null;
+    let previewVideo       = null;
+    let previewSrc         = null;  // m3u8 mémorisé ; le flux n'est créé qu'au 1er survol
+    let previewReady       = false;
+    let previewSeeking     = false;
+    let previewErrCount    = 0;
+    let previewWantedKey   = -1;   // dernière vignette demandée par la souris
+    let previewSeekingKey  = -1;   // vignette en cours de chargement
+    let previewShownKey    = -1;   // vignette actuellement dessinée
+    let previewSeekTimer   = null;
+    const previewCache     = new Map();   // key -> canvas hors-écran
 
-    function setupSeekPreview(m3u8Url) {
+    function previewStep() {
+        // ~1 vignette / 30 s ; on espace pour les longues VOD (cible ~200 vignettes max)
+        const d = previewVideo?.duration || 0;
+        return Math.max(30, Math.round(d / 200));
+    }
+    function previewKey(time)      { return Math.floor(time / previewStep()); }
+    function previewTimeForKey(k)  {
+        const d = previewVideo?.duration || 0;
+        return Math.min(k * previewStep() + previewStep() / 2, Math.max(0, d - 0.1));
+    }
+
+    // Mémorise la source à l'init, sans créer le 2e flux (évite la concurrence
+    // avec le chargement du flux principal).
+    function armSeekPreview(m3u8Url) {
         destroySeekPreview();
-        if (window.innerWidth <= 768 || typeof Hls === 'undefined' || !Hls.isSupported()) return;
+        previewSrc = (window.innerWidth > 768 && typeof Hls !== 'undefined' && Hls.isSupported()) ? m3u8Url : null;
+    }
+
+    // Création paresseuse : le flux d'aperçu n'est monté qu'au premier survol.
+    function ensureSeekPreview() {
+        if (previewVideo || !previewSrc) return;
 
         previewVideo = document.createElement('video');
         previewVideo.muted       = true;
@@ -700,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(previewVideo);
 
         previewHls = new Hls({ maxBufferLength: 4, maxMaxBufferLength: 8 });
-        previewHls.loadSource(m3u8Url);
+        previewHls.loadSource(previewSrc);
         previewHls.attachMedia(previewVideo);
         previewHls.on(Hls.Events.MANIFEST_PARSED, () => {
             const levels = previewHls.levels || [];
@@ -711,44 +736,81 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             previewReady = true;
         });
-        previewHls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) destroySeekPreview(); });
+        // Récupération sur erreur plutôt que destruction immédiate (transitoires réseau).
+        previewHls.on(Hls.Events.ERROR, (_, d) => {
+            if (!d.fatal) return;
+            if (++previewErrCount > 4) { destroySeekPreview(); return; }
+            if (d.type === Hls.ErrorTypes.NETWORK_ERROR)    previewHls.startLoad();
+            else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) previewHls.recoverMediaError();
+            else destroySeekPreview();
+        });
         previewVideo.addEventListener('seeked', onPreviewSeeked);
     }
 
-    function onPreviewSeeked() {
-        drawPreviewFrame(previewVideo.currentTime);
-        previewSeeking = false;
-        if (previewWantedTime >= 0 && Math.abs(previewWantedTime - previewVideo.currentTime) > 1) {
-            requestPreviewAt(previewWantedTime);     // coalescing : rejoint la dernière position
-        }
+    function drawCanvas(src) {
+        const canvas = document.getElementById('seek-preview-canvas');
+        if (canvas && src) { try { canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height); } catch (_) {} }
     }
 
-    function drawPreviewFrame(time) {
-        const canvas = document.getElementById('seek-preview-canvas');
-        if (!canvas || !previewVideo || !previewVideo.videoWidth) return;
-        try {
-            canvas.getContext('2d').drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
-            const off = document.createElement('canvas');
-            off.width = canvas.width; off.height = canvas.height;
-            off.getContext('2d').drawImage(canvas, 0, 0);   // opérations d'affichage : OK même si canvas taché
-            previewCache.set(Math.floor(time / PREVIEW_BUCKET), off);
-            if (previewCache.size > 80) previewCache.delete(previewCache.keys().next().value);
-        } catch (_) {}
+    // Affiche une vignette si elle est en cache ; sinon laisse la dernière (pas de saut).
+    function showKey(key) {
+        if (key === previewShownKey) return;
+        const cached = previewCache.get(key);
+        if (cached) { drawCanvas(cached); previewShownKey = key; }
+    }
+
+    function cacheCurrentFrame(key) {
+        if (!previewVideo || !previewVideo.videoWidth) return false;
+        const off = document.createElement('canvas');
+        off.width = 160; off.height = 90;
+        try { off.getContext('2d').drawImage(previewVideo, 0, 0, 160, 90); } catch (_) { return false; }
+        previewCache.set(key, off);
+        if (previewCache.size > 250) previewCache.delete(previewCache.keys().next().value);
+        return true;
     }
 
     function requestPreviewAt(time) {
-        if (!previewReady || !previewVideo) return;
-        const canvas = document.getElementById('seek-preview-canvas');
-        const cached = previewCache.get(Math.floor(time / PREVIEW_BUCKET));
-        if (cached && canvas) { canvas.getContext('2d').drawImage(cached, 0, 0); return; }
-        previewWantedTime = time;
-        if (previewSeeking) return;
-        previewSeeking = true;
-        try { previewVideo.currentTime = time; } catch (_) { previewSeeking = false; }
+        if (!previewReady || !previewVideo || !previewVideo.duration) return;
+        const key = previewKey(time);
+        previewWantedKey = key;
+        if (previewCache.has(key)) { showKey(key); return; }   // cache : instantané
+        if (!previewSeeking) seekToKey(key);                   // sinon on charge (1 seul seek à la fois)
+    }
+
+    function seekToKey(key) {
+        previewSeeking    = true;
+        previewSeekingKey = key;
+        clearTimeout(previewSeekTimer);
+        previewSeekTimer = setTimeout(onPreviewSeekTimeout, 1200);   // watchdog : ne pas rester bloqué
+        try { previewVideo.currentTime = previewTimeForKey(key); }
+        catch (_) { previewSeeking = false; }
+    }
+
+    function onPreviewSeeked() {
+        clearTimeout(previewSeekTimer);
+        cacheCurrentFrame(previewSeekingKey);
+        showKey(previewWantedKey >= 0 ? previewWantedKey : previewSeekingKey);
+        previewSeeking = false;
+        pumpPreview();
+    }
+
+    function onPreviewSeekTimeout() {
+        previewSeeking = false;   // le seek traîne : on débloque pour la suite
+        pumpPreview();
+    }
+
+    // S'il reste une vignette voulue non servie, on va la chercher.
+    function pumpPreview() {
+        if (previewWantedKey >= 0 && previewWantedKey !== previewSeekingKey && !previewCache.has(previewWantedKey)) {
+            seekToKey(previewWantedKey);
+        }
     }
 
     function destroySeekPreview() {
-        previewReady = false; previewSeeking = false; previewWantedTime = -1;
+        previewReady = false; previewSeeking = false; previewErrCount = 0;
+        previewSrc = null;
+        previewWantedKey = previewSeekingKey = previewShownKey = -1;
+        clearTimeout(previewSeekTimer);
         previewCache.clear();
         previewVideo?.removeEventListener('seeked', onPreviewSeeked);
         try { previewHls?.destroy(); } catch (_) {}
@@ -940,6 +1002,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const rect = seekCont.getBoundingClientRect();
             const x    = pct * rect.width;
             const t    = pct * video.duration;
+
+            ensureSeekPreview();   // création paresseuse au 1er survol (no-op ensuite)
 
             if (previewVideo && previewReady && previewBox) {
                 // Aperçu vidéo : on dessine la frame et on affiche le temps dans la boîte
