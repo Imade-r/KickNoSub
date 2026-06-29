@@ -285,8 +285,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const vodTitle = data.metadata?.session_title || 'Kick VOD';
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
-                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch);
-                // Clips et VOD Twitch n'ont pas de chat synchronisé ni de rediffs liées
+                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id);
+                // Clips et VOD Twitch n'ont pas de rediffs liées (pas de recherche streamer Twitch)
                 if (data.is_clip || data.is_twitch) {
                     clearRelatedVods();
                 } else {
@@ -403,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Initialize Player ───────────────────
-    function initializePlayer(m3u8Url, metadata, channel, isClip = false, isTwitch = false) {
+    function initializePlayer(m3u8Url, metadata, channel, isClip = false, isTwitch = false, twitchVodId = null) {
         if (heroSection) heroSection.style.display = 'none';
         document.querySelector('#home-view .how-it-works')?.style.setProperty('display', 'none');
         document.getElementById('trending-section')?.style.setProperty('display', 'none');
@@ -543,11 +543,16 @@ document.addEventListener('DOMContentLoaded', () => {
             video.addEventListener('ended', onVideoEnded);
         }
 
-        // Clips et VOD Twitch n'ont pas de chat synchronisé → masquer la sidebar
+        // Les clips n'ont pas de chat → masquer la sidebar
         const chatSidebar = document.getElementById('vod-chat-sidebar');
-        if (isClip || isTwitch) {
+        if (isClip) {
             chatActiveSession++; // stoppe toute boucle de chat en cours
             if (chatSidebar) chatSidebar.style.display = 'none';
+        } else if (isTwitch && chatList) {
+            // Chat replay Twitch (via /api/twitch/chat, synchronisé sur la lecture)
+            if (chatSidebar) chatSidebar.style.display = '';
+            chatActiveSession++;
+            startTwitchChat(twitchVodId, chatActiveSession);
         } else if (chatList) {
             if (chatSidebar) chatSidebar.style.display = '';
             chatActiveSession++;
@@ -1374,6 +1379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Go Back to Home ─────────────────────
     function goBackHome() {
         chatActiveSession++;
+        stopTwitchChat();
         hls?.destroy(); hls = null;
         destroySeekPreview();
         if (video) video.src = '';
@@ -1483,6 +1489,120 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         while (chatList.children.length > 150) chatList.removeChild(chatList.firstChild);
         lastRenderedMsgId = lastM.id;
+        if (appended && !isUserScrolled) chatList.scrollTop = chatList.scrollHeight;
+    }
+
+    // ── Chat replay Twitch ──────────────────────────────────────────────────
+    // Polling par offset au niveau de la tête de lecture : on bufferise les
+    // commentaires à venir et on les affiche quand la lecture les atteint.
+    let twitchChatBuf = [];
+    let twitchSeenIds = new Set();
+    let twitchVodId   = null;
+    let twitchOnTime  = null;
+    let twitchOnSeek  = null;
+
+    function ensureChatScrollBtn() {
+        if (!chatList || document.getElementById('chat-scroll-btn')) return;
+        const btn = document.createElement('button');
+        btn.id = 'chat-scroll-btn';
+        btn.className = 'chat-scroll-btn';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg> Bas du chat`;
+        btn.addEventListener('click', () => {
+            chatList.scrollTop = chatList.scrollHeight;
+            isUserScrolled = false;
+            btn.classList.remove('visible');
+        });
+        chatList.parentNode?.insertBefore(btn, chatList.nextSibling);
+    }
+
+    function stopTwitchChat() {
+        if (twitchOnTime) video?.removeEventListener('timeupdate', twitchOnTime);
+        if (twitchOnSeek) video?.removeEventListener('seeking', twitchOnSeek);
+        twitchOnTime = twitchOnSeek = null;
+    }
+
+    function resetTwitchChat() {
+        twitchChatBuf = [];
+        twitchSeenIds = new Set();
+        if (chatList) chatList.innerHTML = '<div class="chat-status">Synchronisation…</div>';
+    }
+
+    function startTwitchChat(vodId, sessionId) {
+        stopTwitchChat();
+        twitchVodId   = vodId;
+        twitchChatBuf = [];
+        twitchSeenIds = new Set();
+        isUserScrolled = false;
+        if (!vodId || !chatList) return;
+        chatList.innerHTML = '<div class="chat-status">Chargement du chat…</div>';
+
+        chatList.removeEventListener('scroll', handleChatScroll);
+        chatList.addEventListener('scroll', handleChatScroll, { passive: true });
+        ensureChatScrollBtn();
+
+        twitchOnTime = () => renderTwitchChat();
+        twitchOnSeek = () => resetTwitchChat();
+        video?.addEventListener('timeupdate', twitchOnTime);
+        video?.addEventListener('seeking', twitchOnSeek);
+
+        twitchChatPoll(sessionId);
+    }
+
+    async function twitchChatPoll(sessionId) {
+        while (chatActiveSession === sessionId) {
+            try {
+                if (!video || !twitchVodId) { await sleep(1500); continue; }
+                const off = Math.max(0, Math.floor(video.currentTime));
+                const res = await fetch(`/api/twitch/chat?vod=${twitchVodId}&offset=${off}`);
+                if (chatActiveSession !== sessionId) break;
+                if (res.ok) {
+                    const data = await res.json();
+                    let added = false;
+                    (data.comments || []).forEach(c => {
+                        if (c.id && !twitchSeenIds.has(c.id)) {
+                            twitchSeenIds.add(c.id); twitchChatBuf.push(c); added = true;
+                        }
+                    });
+                    if (added) {
+                        twitchChatBuf.sort((a, b) => a.offset - b.offset);
+                        if (twitchChatBuf.length > 1500) {
+                            twitchChatBuf = twitchChatBuf.slice(-1500);
+                            twitchSeenIds = new Set(twitchChatBuf.map(c => c.id));
+                        }
+                    }
+                    renderTwitchChat();
+                    const s = chatList?.querySelector('.chat-status');
+                    if (s && !twitchChatBuf.length) s.textContent = 'Pas de messages sur ce passage.';
+                }
+                await sleep(3000);
+            } catch (e) {
+                await sleep(6000);
+            }
+        }
+    }
+
+    function renderTwitchChat() {
+        if (!chatList || !video) return;
+        const t = video.currentTime;
+        const existing = new Set();
+        chatList.querySelectorAll('.chat-message[data-id]').forEach(el => existing.add(el.dataset.id));
+        let appended = false;
+        twitchChatBuf.forEach(c => {
+            if (c.offset > t || existing.has(String(c.id))) return;
+            chatList.querySelector('.chat-status')?.remove();
+            const color = resolveUsernameColor(c.color);
+            const body = (c.frags || []).map(f => f.emote
+                ? `<img class="chat-emote" src="${f.emote}" alt=":${escapeHtml(f.name || '')}:" title=":${escapeHtml(f.name || '')}:" loading="lazy">`
+                : escapeHtml(f.text || '')).join('');
+            const div = document.createElement('div');
+            div.className  = 'chat-message';
+            div.dataset.id = String(c.id);
+            div.innerHTML  = `<span class="chat-time">${formatTime(c.offset)}</span> <span class="chat-username" style="color:${color}">${escapeHtml(c.user)}</span><span style="color:var(--text-muted)">:</span> <span class="chat-content">${body}</span>`;
+            chatList.appendChild(div);
+            existing.add(String(c.id));
+            appended = true;
+        });
+        while (chatList.children.length > 150) chatList.removeChild(chatList.firstChild);
         if (appended && !isUserScrolled) chatList.scrollTop = chatList.scrollHeight;
     }
 

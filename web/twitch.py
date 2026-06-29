@@ -13,6 +13,10 @@ GQL_URL = "https://gql.twitch.tv/gql"
 # Client-Id public du client web Twitch (identique à celui utilisé par le site).
 GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 
+# Persisted query officielle des commentaires de VOD (chat replay).
+CHAT_QUERY_HASH = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+EMOTE_URL = "https://static-cdn.jtvnw.net/emoticons/v2/{id}/default/dark/1.0"
+
 # Qualités candidates, de la meilleure à la plus basse.
 QUALITIES = [
     ("chunked", "Source",  "1920x1080", 60),
@@ -156,6 +160,58 @@ def resolve(vod_id, scraper):
         "avatar":    owner.get("profileImageURL") or "",
     }
     return {"variants": variants, "meta": meta}
+
+
+def get_chat(vod_id, scraper, offset=None, cursor=None):
+    """Chat replay d'une VOD Twitch. Pagination par `offset` (secondes) au départ,
+    puis par `cursor`. Renvoie {comments, cursor, hasNext} ou {error}."""
+    variables = {"videoID": str(vod_id)}
+    if cursor:
+        variables["cursor"] = cursor
+    else:
+        variables["contentOffsetSeconds"] = int(offset or 0)
+    body = [{
+        "operationName": "VideoCommentsByOffsetOrCursor",
+        "variables": variables,
+        "extensions": {"persistedQuery": {"version": 1, "sha256Hash": CHAT_QUERY_HASH}},
+    }]
+    try:
+        r = scraper.post(GQL_URL, json=body,
+                         headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"},
+                         timeout=10)
+        if r.status_code != 200:
+            return {"error": "chat indisponible"}
+        node = (r.json()[0].get("data", {}).get("video") or {}).get("comments")
+        if node is None:
+            return {"error": "chat indisponible"}
+    except Exception:
+        return {"error": "chat indisponible"}
+
+    comments, last_cursor = [], None
+    for edge in node.get("edges", []):
+        last_cursor = edge.get("cursor") or last_cursor
+        n = edge.get("node") or {}
+        commenter = n.get("commenter") or {}
+        msg = n.get("message") or {}
+        frags = []
+        for f in msg.get("fragments", []):
+            emote = f.get("emote")
+            if emote and emote.get("emoteID"):
+                frags.append({"emote": EMOTE_URL.format(id=emote["emoteID"]), "name": f.get("text", "")})
+            elif f.get("text"):
+                frags.append({"text": f["text"]})
+        comments.append({
+            "id":     n.get("id"),
+            "offset": n.get("contentOffsetSeconds", 0),
+            "user":   commenter.get("displayName") or commenter.get("login") or "?",
+            "color":  msg.get("userColor") or "",
+            "frags":  frags,
+        })
+    return {
+        "comments": comments,
+        "cursor":   last_cursor,
+        "hasNext":  bool((node.get("pageInfo") or {}).get("hasNextPage")),
+    }
 
 
 def build_master_playlist(variants, proxy_path):

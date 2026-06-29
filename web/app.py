@@ -353,6 +353,7 @@ def _twitch_stream_response(url):
     return jsonify({
         "stream_url": f"/api/twitch/master/{vod_id}.m3u8",
         "is_twitch": True,
+        "vod_id": vod_id,
         "metadata": {
             "session_title": meta["title"],
             "start_time":    meta["created_at"],
@@ -392,6 +393,18 @@ def twitch_playlist():
     if playlist is None:
         return "Upstream error", 502
     return app.response_class(playlist, mimetype="application/vnd.apple.mpegurl")
+
+
+@app.route('/api/twitch/chat', methods=['GET'])
+@maybe_limit("150 per minute")
+def twitch_chat():
+    vod_id = request.args.get('vod', '')
+    if not re.fullmatch(r'\d{1,15}', vod_id):
+        return jsonify({"error": "invalid vod"}), 400
+    cursor = request.args.get('cursor') or None
+    offset = request.args.get('offset')
+    result = twitch.get_chat(vod_id, scraper, offset=offset, cursor=cursor)
+    return jsonify(result), (200 if "error" not in result else 502)
 
 
 @app.route('/api/twitch/segment', methods=['GET'])

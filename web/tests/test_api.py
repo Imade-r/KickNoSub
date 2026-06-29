@@ -94,3 +94,8 @@ def test_twitch_proxy_allows_cloudfront_host():
     import twitch
     assert twitch.is_allowed_proxy_url('https://abc.cloudfront.net/x/index-dvr.m3u8') is True
     assert twitch.is_allowed_proxy_url('https://evil.com/x.m3u8') is False
+
+
+def test_twitch_chat_rejects_invalid_vod(client):
+    assert client.get('/api/twitch/chat', query_string={'vod': 'abc'}).status_code == 400
+    assert client.get('/api/twitch/chat').status_code == 400
