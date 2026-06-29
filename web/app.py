@@ -345,19 +345,31 @@ def _resolve_twitch_cached(vod_id):
 
 
 def _twitch_stream_response(url):
-    """Construit la réponse get_stream (forme compatible Kick) pour une VOD Twitch."""
+    """Construit la réponse get_stream (forme compatible Kick) pour une VOD ou un clip Twitch."""
+    # ── Clips Twitch ──
+    clip_slug = twitch.extract_clip_slug(url)
+    if clip_slug:
+        result = twitch.resolve_clip(clip_slug, scraper)
+        if "error" in result:
+            return jsonify(result), 404
+        return jsonify(result)
+
+    # ── VOD Twitch ──
     vod_id = twitch.extract_vod_id(url)
     if not vod_id:
-        return jsonify({"error": "URL de VOD Twitch invalide (attendu twitch.tv/videos/...)"}), 400
+        return jsonify({"error": "URL Twitch invalide (attendu twitch.tv/videos/... ou un clip)"}), 400
     result = _resolve_twitch_cached(vod_id)
     if "error" in result:
         return jsonify(result), 404
     meta = result["meta"]
+    # URL brute du meilleur variant (CloudFront), utilisable par ffmpeg
+    best_variant = result["variants"][0]["url"] if result.get("variants") else None
     return jsonify({
         "stream_url": f"/api/twitch/master/{vod_id}.m3u8",
         "is_twitch": True,
         "vod_id": vod_id,
         "storyboard": result.get("storyboard"),
+        "download_url": best_variant,
         "metadata": {
             "session_title": meta["title"],
             "start_time":    meta["created_at"],
@@ -459,7 +471,7 @@ def get_stream():
     data = request.json
     url = data.get('url', '')
 
-    if "twitch.tv" in url:
+    if "twitch.tv" in url or "clips.twitch.tv" in url:
         return _twitch_stream_response(url)
 
     if "kick.com" not in url:

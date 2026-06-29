@@ -221,8 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Watch Button ────────────────────────
     loadBtn?.addEventListener('click', () => {
         const url = urlInput?.value.trim();
-        if (!url) { showError('Veuillez entrer une URL de VOD Kick ou Twitch.'); return; }
-        if (!/kick\.com\/|twitch\.tv\//.test(url)) { showError('Colle un lien de VOD Kick ou Twitch valide.'); return; }
+        if (!url) { showError('Veuillez entrer une URL de VOD ou de clip Kick/Twitch.'); return; }
+        if (!/kick\.com\/|twitch\.tv\//.test(url)) { showError('Colle un lien valide de VOD/clip Kick ou Twitch.'); return; }
         fetchStreamUrl(url);
     });
 
@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </circle>
                 </svg>
             </div>
-            <p class="vod-switch-label">Préparation de la rediff…</p>
+            <p class="vod-switch-label">${t('loading_vod')}</p>
             ${title ? `<p class="vod-switch-title">${escapeHtml(title)}</p>` : ''}`;
         ov.style.display = 'flex';
     }
@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchStreamUrl(kickUrl, fromStreamerSearch = false, switchTitle = '', switchThumb = '') {
         if (!loadBtn) return;
         const origHTML = loadBtn.innerHTML;
-        loadBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Chargement…</span>`;
+        loadBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>${t('loading')}</span>`;
         loadBtn.classList.add('is-loading');
         loadBtn.disabled = true;
 
@@ -286,6 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
                 initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id, data.storyboard);
+                window.currentDownloadUrl = data.download_url || null;
                 if (data.is_clip) {
                     clearRelatedVods();
                 } else if (data.is_twitch) {
@@ -373,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
         section.innerHTML = `
             <div class="related-vods-header">
                 <img src="${escapeHtml(_lastStreamerInfo.avatar || '')}" class="related-vods-avatar" alt="" onerror="this.style.display='none'">
-                <div class="related-vods-title">Autres rediffs de <strong>${escapeHtml(_lastStreamerInfo.name || _lastStreamerInfo.slug)}</strong></div>
+                <div class="related-vods-title">${t('related_vods_title')} <strong>${escapeHtml(_lastStreamerInfo.name || _lastStreamerInfo.slug)}</strong></div>
             </div>
             <div class="related-vods-grid">
                 ${others.map(vod => {
@@ -419,7 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const thumb = card.dataset.thumb || '';
                 if (urlInput) urlInput.value = url;
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-                showToast('success', 'Chargement…', title || 'Préparation de la rediff', 3000);
+                showToast('success', t('loading'), title || t('loading_vod'), 3000);
                 fetchStreamUrl(url, true, title, thumb);
             });
         });
@@ -582,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chatMessages      = [];
             lastRenderedMsgId = null;
             isUserScrolled    = false;
-            chatList.innerHTML = '<div class="chat-status">Connexion au chat…</div>';
+            chatList.innerHTML = `<div class="chat-status">${t('chat_connecting')}</div>`;
 
             chatList.removeEventListener('scroll', handleChatScroll);
             chatList.addEventListener('scroll', handleChatScroll, { passive: true });
@@ -937,7 +938,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {}
     }
 
-    // ── Overlay d'aide des raccourcis clavier (touche ?) ────────────────────
+    // ── Aide Raccourcis Clavier ────────────────────────
+    document.getElementById('btn-shortcuts')?.addEventListener('click', () => toggleShortcutsHelp(true));
+
     function toggleShortcutsHelp(force) {
         const existing = document.getElementById('shortcuts-overlay');
         const show = force === undefined ? !existing : force;
@@ -1610,7 +1613,7 @@ document.addEventListener('DOMContentLoaded', () => {
         twitchSeenIds = new Set();
         isUserScrolled = false;
         if (!vodId || !chatList) return;
-        chatList.innerHTML = '<div class="chat-status">Chargement du chat…</div>';
+        chatList.innerHTML = `<div class="chat-status">${t('chat_loading')}</div>`;
 
         chatList.removeEventListener('scroll', handleChatScroll);
         chatList.addEventListener('scroll', handleChatScroll, { passive: true });
@@ -1652,6 +1655,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 await sleep(3000);
             } catch (e) {
+                console.warn('Erreur chat Twitch:', e);
+                const s = chatList?.querySelector('.chat-status');
+                if (s && !twitchChatBuf.length) {
+                    s.textContent = 'Erreur réseau. Reconnexion...';
+                }
                 await sleep(6000);
             }
         }
@@ -1833,7 +1841,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const thumb = card.dataset.thumb || '';
                 if (urlInput) urlInput.value = url;
                 switchToTab('url');
-                showToast('success', 'Chargement…', title || 'Préparation de la rediff', 3000);
+                showToast('success', t('loading'), title || t('loading_vod'), 3000);
                 fetchStreamUrl(url, true, title, thumb);
             });
         });
@@ -1913,7 +1921,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (_trendingLoaded && !force) { section.style.display = ''; return; }
 
         section.style.display = '';
-        grid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">Chargement des tendances…</div>`;
+        grid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('trending_loading')}</div>`;
         try {
             const res  = await fetch('/api/trending');
             const data = await res.json();
@@ -2155,12 +2163,12 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="autonext-inner">
                 ${nextVod.thumbnail ? `<img src="${escapeHtml(nextVod.thumbnail)}" class="autonext-thumb" alt="">` : ''}
                 <div class="autonext-info">
-                    <p class="autonext-label">Prochaine rediff dans…</p>
+                    <p class="autonext-label">${t('autonext_label')}</p>
                     <p class="autonext-title">${escapeHtml(nextVod.title)}</p>
                     <div class="autonext-countdown-row">
                         <span id="autonext-num">${countdown}</span>
-                        <button id="autonext-cancel" class="autonext-btn autonext-btn-cancel">Annuler</button>
-                        <button id="autonext-now" class="autonext-btn autonext-btn-now">Regarder maintenant</button>
+                        <button id="autonext-cancel" class="autonext-btn autonext-btn-cancel">${t('autonext_cancel')}</button>
+                        <button id="autonext-now" class="autonext-btn autonext-btn-now">${t('autonext_watch_now')}</button>
                     </div>
                 </div>
             </div>`;
@@ -2327,16 +2335,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const downloadModal = document.getElementById('download-modal');
     document.getElementById('btn-download')?.addEventListener('click', () => {
         if (!window.currentM3U8Url) {
-            showToast('error', 'Erreur', 'Le lien de téléchargement n\'est pas prêt.', 3000);
+            showToast('error', 'Erreur', t('download_not_ready'), 3000);
             return;
         }
-        document.getElementById('download-m3u8-input').value = window.currentM3U8Url;
+        // URL de téléchargement : préfère l'URL brute CloudFront (Twitch) si dispo
+        const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
+        document.getElementById('download-m3u8-input').value = dlUrl;
         
         // Générer le nom de fichier par défaut (ex: xqc_vod_123.mp4)
         const streamer = currentVODMeta?.streamer || 'streamer';
         const dateStr = currentVODMeta?.date ? currentVODMeta.date.split(' ')[0] : 'vod';
         const filename = `${streamer}_${dateStr}.mp4`.replace(/[^a-zA-Z0-9_.-]/g, '');
-        document.getElementById('download-ffmpeg-input').value = `ffmpeg -i "${window.currentM3U8Url}" -c copy ${filename}`;
+        document.getElementById('download-ffmpeg-input').value = `ffmpeg -i "${dlUrl}" -c copy ${filename}`;
         
         downloadModal.style.display = 'flex';
     });
@@ -2355,9 +2365,9 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.clipboard.writeText(input.value).then(() => {
             const btn = document.getElementById(btnId);
             const origText = btn.innerText;
-            btn.innerText = 'Copié !';
+            btn.innerText = t('copied');
             setTimeout(() => btn.innerText = origText, 2000);
-            showToast('success', 'Copié', 'Texte copié dans le presse-papier.', 2000);
+            showToast('success', t('copied'), t('copied_clipboard'), 2000);
         });
     };
 
@@ -2451,7 +2461,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bar = document.createElement('div');
         bar.id = 'history-filter-bar';
         bar.className = 'history-filter-bar';
-        bar.innerHTML = `<input type="search" id="history-search" class="history-search-input" placeholder="Rechercher par titre ou streamer…">`;
+        bar.innerHTML = `<input type="search" id="history-search" class="history-search-input" placeholder="${t('history_search_placeholder')}">`;
         h1.insertAdjacentElement('afterend', bar);
 
         document.getElementById('history-search').addEventListener('input', e => {

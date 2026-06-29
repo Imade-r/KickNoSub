@@ -5,16 +5,16 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta name="csrf-token" content="19bd44af-e1dd-43d7-835a-fcd44210429e" />
 	
-<meta name="description" content="Regardez des VODs sub Kick et du contenu kick sub vod sans abonnement. Entrez un lien Kick et regardez instantanément, totalement gratuit !" />
-<meta name="keywords" content="Kick, vod, vidéo, sans abonnement, kicknosub, kick no sub, nosub, replay, rediffusion kick, streamer, streaming, stream, flux kick" />
-<meta property="og:title" content="Regarder les VOD Kick sans abonnement | KickNoSub" />
-<meta property="og:description" content="Regardez des VOD Kick réservées aux abonnés sans abonnement. Entrez un lien Kick et regardez instantanément, gratuitement !" />
+<meta name="description" content="Regardez des VODs et clips Kick et Twitch sans abonnement. Entrez un lien et regardez instantanément, totalement gratuit !" />
+<meta name="keywords" content="Kick, Twitch, vod, clip, vidéo, sans abonnement, kicknosub, kick no sub, nosub, replay, rediffusion, streamer, streaming, stream" />
+<meta property="og:title" content="Regarder les VOD Kick et Twitch sans abonnement | KickNoSub" />
+<meta property="og:description" content="Regardez des VOD Kick réservées aux abonnés et des replays Twitch sans abonnement ni pub. Entrez un lien et regardez instantanément, gratuitement !" />
 <meta property="og:image" content="/static/logo.png" />
 <meta property="og:image:width" content="64" />
 <meta property="og:image:height" content="64" />
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Regarder les VOD Kick sans abonnement | KickNoSub" />
-<meta name="twitter:description" content="Regardez des VOD Kick réservées aux abonnés sans abonnement. Entrez un lien Kick et regardez instantanément, gratuitement !" />
+<meta name="twitter:title" content="Regarder les VOD Kick et Twitch sans abonnement | KickNoSub" />
+<meta name="twitter:description" content="Regardez des VOD Kick réservées aux abonnés et des replays Twitch sans abonnement ni pub. Entrez un lien et regardez instantanément, gratuitement !" />
 <meta name="twitter:image" content="/static/img/logo.png" />
 <meta name="Trafficstars" content="siteID" />
 
@@ -26,7 +26,7 @@
 <link rel="alternate" hreflang="x-default" href="https://kicknosub.com/" />
 
 	
-<title>Regarder les VOD Kick sans abonnement | KickNoSub</title>
+<title>Regarder les VOD Kick et Twitch sans abonnement | KickNoSub</title>
 
 	<link rel="icon" type="image/x-icon" href="/static/img/favicon.ico" />
 	
@@ -95,10 +95,10 @@
                     <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
                     <path d="M5 3v4" /><path d="M19 17v4" /><path d="M3 5h4" /><path d="M17 19h4" />
                 </svg>
-                <span>Gratuit • Aucun compte requis</span>
+                <span data-i18n="hero_badge">Gratuit • Aucun compte requis</span>
             </div>
-            <h1 class="hero-title">Regardez les VOD Kick <span class="highlight">Sans abonnement</span></h1>
-            <p class="hero-subtitle">Enter any Kick VOD or clip link and start watching instantly. No subscription, completely free.</p>
+            <h1 class="hero-title" data-i18n="hero_title">Regardez les VOD Kick <span class="highlight">Sans abonnement</span></h1>
+            <p class="hero-subtitle" data-i18n="hero_subtitle">Enter any Kick VOD or clip link and start watching instantly. No subscription, completely free.</p>
             
             
             <div class="input-card glass-card glow-box">
@@ -115,7 +115,7 @@
                 </div>
 
                 <div id="url-input-section">
-                    <input type="url" id="kick_url" class="input-box" placeholder="Collez l’URL d’une VOD Kick ou Twitch (ou un clip Kick)..." style="margin-bottom:16px;" />
+                    <input type="url" id="kick_url" class="input-box" placeholder="Collez l’URL d’une VOD ou d'un clip Kick/Twitch..." style="margin-bottom:16px;" />
                     <button id="watch-now-btn" type="button" class="btn-primary" data-action="fetchAndPlay"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg><span data-i18n="btn_watch">Regarder maintenant</span></button>
                 </div>
                 <div id="streamer-search-section" style="display: none;">
@@ -150,7 +150,7 @@
             <div class="section-header">
                 <div class="section-badge">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                    <span>Simple et rapide</span>
+                    <span data-i18n="how_badge">Simple et rapide</span>
                 </div>
                 <h2 class="section-title" data-i18n="nav_how_it_works">Comment ça marche</h2>
                 <p class="section-subtitle">Watch any Kick VOD in just three simple steps. No sign-up required.</p>
@@ -164,8 +164,8 @@
                             <span class="step-number">1</span>
                         </div>
                     </div>
-                    <h3>Collez le lien</h3>
-                    <p>Copy any Kick VOD or clip URL and paste it into the input field above.</p>
+                    <h3 data-i18n="how_step1_title">Collez le lien</h3>
+                    <p data-i18n="how_step1_desc">Copy any Kick VOD or clip URL and paste it into the input field above.</p>
                 </div>
                 <div class="step-card glass-card">
                     <div class="step-icon-wrapper">
@@ -175,8 +175,8 @@
                             <span class="step-number">2</span>
                         </div>
                     </div>
-                    <h3>Choisissez la qualité</h3>
-                    <p>Choose your preferred video quality from 360p up to 1080p60.</p>
+                    <h3 data-i18n="how_step2_title">Choisissez la qualité</h3>
+                    <p data-i18n="how_step2_desc">Choose your preferred video quality from 360p up to 1080p60.</p>
                 </div>
                 <div class="step-card glass-card">
                     <div class="step-icon-wrapper">
@@ -186,38 +186,42 @@
                             <span class="step-number">3</span>
                         </div>
                     </div>
-                    <h3>Commencez à regarder</h3>
-                    <p>Click watch and enjoy the stream instantly without any subscription.</p>
+                    <h3 data-i18n="how_step3_title">Commencez à regarder</h3>
+                    <p data-i18n="how_step3_desc">Click watch and enjoy the stream instantly without any subscription.</p>
                 </div>
             </div>
         </div>
     </section>
 </div> <!-- end home-view -->
 <div id="faq-view" class="view-section container" style="display:none; padding-top:150px; margin-top:80px; min-height:80vh;">
-    <h1 data-i18n="faq_title" style="margin-bottom:20px;" data-i18n="nav_faq">FAQ</h1>
+    <h1 style="margin-bottom:20px;" data-i18n="faq_title">FAQ</h1>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
         <h3 data-i18n="faq_q1">Est-ce que c'est vraiment gratuit ?</h3>
         <p data-i18n="faq_a1" style="color:var(--text-muted);">Oui, KickNoSub permet de regarder les VODs sub-only sans abonnement.</p>
+    </div>
+    <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
+        <h3 data-i18n="faq_q7">Est-ce que Twitch est supporté ?</h3>
+        <p data-i18n="faq_a7" style="color:var(--text-muted);">Oui ! Vous pouvez coller un lien de VOD ou de clip Twitch, KickNoSub permet de les lire sans publicité et offre des liens de téléchargement bruts.</p>
     </div>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
         <h3 data-i18n="faq_q2">Comment ça marche ?</h3>
         <p data-i18n="faq_a2" style="color:var(--text-muted);">Récupérez simplement le lien de la VOD sur Kick, collez-le ici et regardez avec le chat synchronisé !</p>
     </div>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
-        <h3>Le chat fonctionne-t-il sur les rediffusions ?</h3>
-        <p style="color:var(--text-muted);">Oui, le chat est disponible si la VOD a été enregistrée avec son chat sur Kick. Notez que certaines très anciennes rediffusions n'ont pas toujours d'historique de chat conservé.</p>
+        <h3 data-i18n="faq_q3">Le chat fonctionne-t-il sur les rediffusions ?</h3>
+        <p data-i18n="faq_a3" style="color:var(--text-muted);">Oui, le chat est disponible si la VOD a été enregistrée avec son chat sur Kick. Notez que certaines très anciennes rediffusions n'ont pas toujours d'historique de chat conservé.</p>
     </div>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
-        <h3>Puis-je télécharger une VOD ?</h3>
-        <p style="color:var(--text-muted);">KickNoSub est un lecteur en streaming. Pour télécharger les vidéos, vous aurez besoin d'une extension tierce compatible avec le format HLS (les liens .m3u8 que nous utilisons).</p>
+        <h3 data-i18n="faq_q4">Puis-je télécharger une VOD ?</h3>
+        <p data-i18n="faq_a4" style="color:var(--text-muted);">Oui ! KickNoSub propose maintenant un bouton de téléchargement qui fournit le lien brut (M3U8 ou MP4 pour Twitch) utilisable avec VLC ou FFmpeg.</p>
     </div>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
-        <h3>L'application fonctionne-t-elle sur mobile ?</h3>
-        <p style="color:var(--text-muted);">Absolument ! L'interface est 100% adaptée aux smartphones et tablettes. Vous pouvez même l'installer comme une vraie application (PWA) via le menu "Ajouter à l'écran d'accueil" de votre navigateur.</p>
+        <h3 data-i18n="faq_q5">L'application fonctionne-t-elle sur mobile ?</h3>
+        <p data-i18n="faq_a5" style="color:var(--text-muted);">Absolument ! L'interface est 100% adaptée aux smartphones et tablettes. Vous pouvez même l'installer comme une vraie application (PWA) via le menu "Ajouter à l'écran d'accueil" de votre navigateur.</p>
     </div>
     <div style="background:var(--bg-card); padding:20px; border-radius:var(--radius); margin-bottom:10px;">
-        <h3>Comment marche la sauvegarde de ma progression ?</h3>
-        <p style="color:var(--text-muted);">Votre progression sur chaque VOD est enregistrée automatiquement dans votre navigateur localement. Si vous fermez la page ou changez de vidéo, la lecture reprendra là où vous vous étiez arrêté.</p>
+        <h3 data-i18n="faq_q6">Comment marche la sauvegarde de ma progression ?</h3>
+        <p data-i18n="faq_a6" style="color:var(--text-muted);">Votre progression sur chaque VOD est enregistrée automatiquement dans votre navigateur localement. Si vous fermez la page ou changez de vidéo, la lecture reprendra là où vous vous étiez arrêté.</p>
     </div>
 </div>
 <div id="history-view" class="view-section container" style="display:none; padding-top:150px; margin-top:80px; min-height:80vh;">
@@ -296,6 +300,9 @@
                         <button id="btn-share" class="player-action-btn" title="Partager">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                             <span data-i18n="btn_share">Partager</span>
+                        </button>
+                        <button id="btn-shortcuts" class="player-action-btn" title="Raccourcis clavier" style="margin-left: auto;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2 7h20v10H2z"/><path d="M6 11h.01M10 11h.01M14 11h.01M18 11h.01M8 14h8"/></svg>
                         </button>
                     </div>
                 </div>

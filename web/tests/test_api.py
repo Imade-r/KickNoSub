@@ -104,3 +104,26 @@ def test_twitch_chat_rejects_invalid_vod(client):
 def test_twitch_streamer_vods_rejects_invalid_login(client):
     assert client.get('/api/twitch/streamer_vods', query_string={'login': 'bad/name'}).status_code == 400
     assert client.get('/api/twitch/streamer_vods').status_code == 400
+
+
+# ── Twitch Clips ──
+
+def test_twitch_extract_clip_slug():
+    import twitch
+    # clips.twitch.tv format
+    assert twitch.extract_clip_slug('https://clips.twitch.tv/FunnyClipName-abc123') == 'FunnyClipName-abc123'
+    # twitch.tv/<channel>/clip/<slug> format
+    assert twitch.extract_clip_slug('https://www.twitch.tv/xqc/clip/AmazingPlay123') == 'AmazingPlay123'
+    # With query params
+    assert twitch.extract_clip_slug('https://twitch.tv/shroud/clip/CoolClip?filter=all') == 'CoolClip'
+    # Not a clip URL
+    assert twitch.extract_clip_slug('https://www.twitch.tv/videos/2807719385') is None
+    assert twitch.extract_clip_slug('https://kick.com/xqc/video/uuid') is None
+
+
+def test_get_stream_accepts_clips_twitch_tv(client):
+    """clips.twitch.tv URLs should be routed to Twitch, not rejected as non-Kick."""
+    r = client.post('/api/get_stream', json={'url': 'https://clips.twitch.tv/TestSlug'})
+    # 404 (clip not found on Twitch) is OK — the important thing is it's NOT 400 (invalid platform)
+    assert r.status_code != 400
+

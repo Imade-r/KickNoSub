@@ -187,6 +187,25 @@ def extract_vod_id(url):
     return None
 
 
+def extract_clip_slug(url):
+    """Extrait le slug d'un clip Twitch.
+    Formats supportés :
+      - https://clips.twitch.tv/SlugName
+      - https://www.twitch.tv/streamer/clip/SlugName
+      - https://twitch.tv/streamer/clip/SlugName?...
+    Renvoie None si l'URL n'est pas un clip.
+    """
+    # clips.twitch.tv/SlugName
+    m = re.search(r'clips\.twitch\.tv/([A-Za-z0-9_-]+)', url)
+    if m:
+        return m.group(1)
+    # twitch.tv/<channel>/clip/<slug>
+    m = re.search(r'twitch\.tv/[^/]+/clip/([A-Za-z0-9_-]+)', url)
+    if m:
+        return m.group(1)
+    return None
+
+
 def _gql_video(vod_id, scraper):
     query = (
         'query { video(id: "%s") { broadcastType, createdAt, lengthSeconds, '
@@ -490,3 +509,59 @@ def rewrite_media_playlist(url, scraper, seg_proxy):
             s = base + s
         out.append(seg_proxy(s))
     return "\n".join(out) + "\n"
+
+
+def resolve_clip(slug, scraper):
+    """Résout un clip Twitch via l'API GQL publique.
+    Renvoie un dict compatible avec le format clip Kick du frontend, ou {error}."""
+    query = (
+        'query { clip(slug: "%s") { title, durationSeconds, viewCount, createdAt, '
+        'videoQualities { frameRate, quality, sourceURL }, '
+        'curator { login, displayName }, '
+        'broadcaster { id, login, displayName, profileImageURL(width: 70) } } }'
+        % slug
+    )
+    try:
+        r = scraper.post(
+            GQL_URL,
+            json={"query": query},
+            headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return {"error": "Clip Twitch introuvable"}
+        clip = (r.json() or {}).get("data", {}).get("clip")
+    except Exception:
+        return {"error": "Erreur lors de la résolution du clip Twitch"}
+
+    if not clip:
+        return {"error": "Clip Twitch introuvable"}
+
+    # Choisit la meilleure qualité disponible (la première est la plus haute)
+    qualities = clip.get("videoQualities") or []
+    if not qualities:
+        return {"error": "Aucune qualité disponible pour ce clip"}
+    stream_url = qualities[0].get("sourceURL", "")
+    if not stream_url:
+        return {"error": "Aucune URL de lecture pour ce clip"}
+
+    broadcaster = clip.get("broadcaster") or {}
+    return {
+        "stream_url": stream_url,
+        "is_clip": True,
+        "is_twitch": True,
+        "download_url": stream_url,   # MP4 direct, utilisable par ffmpeg
+        "metadata": {
+            "session_title": clip.get("title") or "Clip Twitch",
+            "views": clip.get("viewCount") or 0,
+            "start_time": (clip.get("createdAt") or "").replace("T", " ").replace("Z", ""),
+            "duration": int(clip.get("durationSeconds") or 0) * 1000,
+        },
+        "channel": {
+            "id": broadcaster.get("id"),
+            "slug": broadcaster.get("login") or broadcaster.get("displayName") or "",
+            "login": broadcaster.get("login") or "",
+            "profile_pic": broadcaster.get("profileImageURL") or "",
+        },
+    }
+
