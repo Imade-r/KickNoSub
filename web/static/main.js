@@ -1990,7 +1990,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         playVOD(card.getAttribute('data-vod-url'));
                     });
                 });
-                bindMiniFavBtns(targetGrid);
                 _trendingLoaded = true;
             } catch (e) {
                 console.error(e);
