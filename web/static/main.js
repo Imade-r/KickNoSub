@@ -1918,47 +1918,83 @@ document.addEventListener('DOMContentLoaded', () => {
         const section = document.getElementById('trending-section');
         const grid    = document.getElementById('trending-grid');
         if (!section || !grid) return;
-        if (_trendingLoaded && !force) { section.style.display = ''; return; }
-
-        section.style.display = '';
-        grid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('trending_loading')}</div>`;
-        try {
-            const res  = await fetch('/api/trending');
-            const data = await res.json();
-            const vods = data.trending || [];
-            if (!vods.length) { section.style.display = 'none'; return; }
-            grid.innerHTML = vods.map(item => {
-                const dur = item.duration ? formatDuration(item.duration) : '';
-                return `
-                <a href="#" class="recent-history-card" data-vod-url="${escapeHtml(item.url)}">
-                    <div class="recent-history-thumb">
-                        <img src="${escapeHtml(item.thumbnail || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
-                        <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
-                        <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
-                        ${dur ? `<span class="history-duration-badge">${escapeHtml(dur)}</span>` : ''}
-                        ${getMiniFavBtn(item)}
-                    </div>
-                    <div class="recent-history-info">
-                        <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
-                        <div class="history-meta-row">
-                            ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
-                            <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
-                        </div>
-                        ${item.views ? `<p class="history-date">${item.views.toLocaleString('fr-FR')} vues</p>` : ''}
-                    </div>
-                </a>`;
-            }).join('');
-
-            grid.querySelectorAll('.recent-history-card').forEach(card => {
-                card.addEventListener('click', e => {
-                    if (e.target.closest('.mini-fav-btn')) return;
-                    e.preventDefault();
-                    playVOD(card.getAttribute('data-vod-url'));
-                });
+        
+        // Tab switching logic
+        const tabs = section.querySelectorAll('.search-tab');
+        const gridKick = document.getElementById('trending-grid');
+        const gridTwitch = document.getElementById('trending-twitch-grid');
+        
+        tabs.forEach(tBtn => {
+            tBtn.addEventListener('click', () => {
+                tabs.forEach(btn => btn.classList.remove('active'));
+                tBtn.classList.add('active');
+                if (tBtn.dataset.tab === 'kick-trending') {
+                    gridTwitch.style.display = 'none';
+                    gridKick.style.display = '';
+                    loadTrendingGrid(gridKick, 'kick');
+                } else {
+                    gridKick.style.display = 'none';
+                    gridTwitch.style.display = '';
+                    loadTrendingGrid(gridTwitch, 'twitch');
+                }
             });
-            _trendingLoaded = true;
-        } catch (_) {
-            section.style.display = 'none';
+        });
+
+        if (_trendingLoaded && !force) { section.style.display = ''; return; }
+        
+        section.style.display = '';
+        loadTrendingGrid(gridKick, 'kick');
+        
+        async function loadTrendingGrid(targetGrid, platform) {
+            if (targetGrid.children.length > 0 && targetGrid.querySelector('.vod-result-card, .recent-history-card') && !force) return;
+            
+            targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('trending_loading', 'Chargement...')}</div>`;
+            try {
+                const res  = await fetch(`/api/trending?platform=${platform}`);
+                const data = await res.json();
+                const vods = data.trending || [];
+                if (!vods.length) { targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">Aucune tendance.</div>`; return; }
+                
+                targetGrid.innerHTML = vods.map(item => {
+                    const dur = item.duration ? formatDuration(item.duration) : '';
+                    const savedSec = getSavedProgress ? getSavedProgress(item.url) : 0;
+                    const totalSec = item.duration ? Math.floor(item.duration / 1000) : 0;
+                    const pct = (totalSec > 0 && savedSec > 0) ? Math.min(100, Math.round((savedSec / totalSec) * 100)) : 0;
+
+                    return `
+                    <a href="#" class="recent-history-card" data-vod-url="${escapeHtml(item.url)}">
+                        <div class="recent-history-thumb">
+                            <img src="${escapeHtml(item.thumbnail || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
+                            <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
+                            <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
+                            ${dur ? `<span class="history-duration-badge">${escapeHtml(dur)}</span>` : ''}
+                            ${pct > 0 ? `<div class="history-progress-bar"><div class="history-progress-fill" style="width:${pct}%"></div></div>` : ''}
+                            ${getMiniFavBtn(item)}
+                        </div>
+                        <div class="recent-history-info">
+                            <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
+                            <div class="history-meta-row">
+                                ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
+                                <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
+                            </div>
+                            ${item.views ? `<p class="history-date">${item.views.toLocaleString('fr-FR')} vues</p>` : ''}
+                        </div>
+                    </a>`;
+                }).join('');
+                
+                targetGrid.querySelectorAll('.recent-history-card').forEach(card => {
+                    card.addEventListener('click', e => {
+                        if (e.target.closest('.mini-fav-btn')) return;
+                        e.preventDefault();
+                        playVOD(card.getAttribute('data-vod-url'));
+                    });
+                });
+                bindMiniFavBtns(targetGrid);
+                _trendingLoaded = true;
+            } catch (e) {
+                console.error(e);
+                targetGrid.innerHTML = '';
+            }
         }
     }
 
@@ -2331,6 +2367,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    document.getElementById('btn-share')?.addEventListener('click', () => {
+        if (navigator.share) {
+            navigator.share({ title: 'KickNoSub VOD', url: window.location.href });
+        } else {
+            prompt('Copiez ce lien:', window.location.href);
+        }
+    });
+
+    document.getElementById('btn-split-view')?.addEventListener('click', () => {
+        document.body.classList.toggle('split-view-active');
+        const isActive = document.body.classList.contains('split-view-active');
+        document.getElementById('btn-split-view').style.color = isActive ? 'var(--accent-primary)' : '';
+    });
+
     // Modal de téléchargement
     const downloadModal = document.getElementById('download-modal');
     document.getElementById('btn-download')?.addEventListener('click', () => {
@@ -2487,6 +2537,59 @@ document.addEventListener('DOMContentLoaded', () => {
     updateFavBadge();
     showView('home-view');
     if (window.setLanguage) window.setLanguage('fr');
+
+    // ── Export/Import Data ──────────────────────────────
+    document.getElementById('btn-export-data')?.addEventListener('click', () => {
+        const data = {
+            ksn_history: localStorage.getItem('ksn_history'),
+            ksn_favorites: localStorage.getItem('ksn_favorites'),
+            ksn_progress: localStorage.getItem('ksn_progress')
+        };
+        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `kicknosub_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btn-import-data')?.addEventListener('click', () => {
+        document.getElementById('import-data-file')?.click();
+    });
+
+    document.getElementById('import-data-file')?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (data.ksn_history) {
+                    const current = JSON.parse(localStorage.getItem('ksn_history') || '[]');
+                    const imported = JSON.parse(data.ksn_history);
+                    const merged = [...current, ...imported].filter((v, i, a) => a.findIndex(t => (t.url === v.url)) === i);
+                    localStorage.setItem('ksn_history', JSON.stringify(merged));
+                }
+                if (data.ksn_favorites) {
+                    const current = JSON.parse(localStorage.getItem('ksn_favorites') || '[]');
+                    const imported = JSON.parse(data.ksn_favorites);
+                    const merged = [...current, ...imported].filter((v, i, a) => a.findIndex(t => (t.url === v.url)) === i);
+                    localStorage.setItem('ksn_favorites', JSON.stringify(merged));
+                }
+                if (data.ksn_progress) {
+                    const current = JSON.parse(localStorage.getItem('ksn_progress') || '{}');
+                    const imported = JSON.parse(data.ksn_progress);
+                    localStorage.setItem('ksn_progress', JSON.stringify({ ...current, ...imported }));
+                }
+                alert('Données importées avec succès !');
+                location.reload();
+            } catch (err) {
+                alert('Fichier invalide.');
+            }
+        };
+        reader.readAsText(file);
+    });
 
     // Register Service Worker for PWA
     if ('serviceWorker' in navigator) {
