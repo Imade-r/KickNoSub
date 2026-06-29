@@ -659,6 +659,8 @@ document.addEventListener('DOMContentLoaded', () => {
         pip:    `<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M19 11h-8v6h8v-6zm4 10V3H1v18h22zm-2-1.97H3V5h18v14.03z"/></svg>`,
         theater:`<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M19 7H5c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm0 10H5V9h14v8z"/></svg>`,
         share:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+        download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+        chatOverlay: `<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`
     };
 
     // ── Synchronise la hauteur du chat sur celle de la carte vidéo ──────────
@@ -1031,6 +1033,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                     <div class="player-controls-right">
+                        <button class="player-ctrl-btn" id="download-btn" title="Télécharger la vidéo">${SVG.download}</button>
+                        <button class="player-ctrl-btn" id="chat-overlay-btn" title="Activer/Désactiver le chat en surimpression" style="display:none;">${SVG.chatOverlay}</button>
                         <button class="player-ctrl-btn" id="pip-btn" title="Picture-in-Picture (P)">${SVG.pip}</button>
                         <button class="player-ctrl-btn" id="theater-btn" title="Mode cinéma (T)">${SVG.theater}</button>
                         <div class="player-speed-wrap">
@@ -1324,6 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
             playerSection?.classList.toggle('theater-mode');
             document.body.classList.toggle('theater-mode-active', entering);
             theaterBtn?.classList.toggle('theater-active', entering);
+            if (typeof updateChatOverlayBtnVisibility === 'function') updateChatOverlayBtnVisibility();
             // En cinéma : la hauteur est gérée en CSS (on efface l'inline).
             // En sortie : on réaccroche la hauteur du chat sur la carte.
             syncChatHeight();
@@ -1331,6 +1336,52 @@ document.addEventListener('DOMContentLoaded', () => {
             if (entering) showTheaterHint();
         }
         theaterBtn?.addEventListener('click', toggleTheater);
+        
+        // --- Chat Overlay (Mobile/Theater) ---
+        const chatOverlayBtn = $('chat-overlay-btn');
+        chatOverlayBtn?.addEventListener('click', () => {
+            const sidebar = $('vod-chat-sidebar');
+            const wrapper = $('video-wrapper-container');
+            if (!sidebar || !wrapper) return;
+            sidebar.classList.toggle('is-overlay');
+            if (sidebar.classList.contains('is-overlay')) {
+                wrapper.appendChild(sidebar);
+            } else {
+                document.querySelector('.player-layout').appendChild(sidebar);
+            }
+        });
+        
+        // Show chat overlay button only if window is mobile or theater
+        function updateChatOverlayBtnVisibility() {
+            if (window.innerWidth <= 768 || playerSection?.classList.contains('theater-mode')) {
+                chatOverlayBtn.style.display = '';
+            } else {
+                chatOverlayBtn.style.display = 'none';
+                // Reset overlay if exiting
+                const sidebar = $('vod-chat-sidebar');
+                if (sidebar && sidebar.classList.contains('is-overlay')) {
+                    sidebar.classList.remove('is-overlay');
+                    document.querySelector('.player-layout').appendChild(sidebar);
+                }
+            }
+        }
+        window.addEventListener('resize', updateChatOverlayBtnVisibility);
+        updateChatOverlayBtnVisibility();
+
+        // --- Download ---
+        $('download-btn')?.addEventListener('click', () => {
+            if (!currentVODMeta || !currentVODMeta.download_url) {
+                showToast('error', 'Erreur', 'Lien de téléchargement introuvable.');
+                return;
+            }
+            if (currentVODMeta.download_url.endsWith('.m3u8')) {
+                navigator.clipboard.writeText(currentVODMeta.download_url).then(() => {
+                    showToast('success', 'Lien copié !', 'Le lien brut M3U8 a été copié. Utilisez VLC ou un téléchargeur pour l\'enregistrer.', 5000);
+                });
+            } else {
+                window.open(currentVODMeta.download_url, '_blank');
+            }
+        });
 
         function showTheaterHint() {
             document.querySelector('.theater-hint')?.remove();
@@ -2186,9 +2237,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // ════════════════════════════════════════════
     function onVideoEnded() {
         clearTimeout(autoNextTimer);
-        const currentIdx = _lastStreamerVods.findIndex(v => v.url === currentVODUrl);
-        if (currentIdx === -1 || !_lastStreamerVods.length) return;
-        const nextVod = _lastStreamerVods[(currentIdx + 1) % _lastStreamerVods.length];
+        let playlist = _lastStreamerVods;
+        if (currentVODMeta && currentVODMeta.is_twitch) {
+            const twCache = sessionStorage.getItem('tw:' + (currentVODMeta.channel?.slug || currentVODMeta.channel?.name || ''));
+            if (twCache) {
+                try { playlist = JSON.parse(twCache).vods || []; } catch(e){}
+            }
+        }
+        const currentIdx = playlist.findIndex(v => v.url === currentVODUrl);
+        if (currentIdx === -1 || !playlist.length) return;
+        const nextVod = playlist[(currentIdx + 1) % playlist.length];
         if (!nextVod || nextVod.url === currentVODUrl) return;
 
         // Créer l'overlay compte à rebours

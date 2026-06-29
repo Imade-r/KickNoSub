@@ -37,18 +37,15 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Stale-While-Revalidate strategy
+    // Network First strategy
     event.respondWith(
-        caches.match(event.request).then(cachedResponse => {
-            const fetchPromise = fetch(event.request).then(networkResponse => {
-                caches.open(CACHE_NAME).then(cache => {
-                    cache.put(event.request, networkResponse.clone());
-                });
-                return networkResponse;
-            }).catch(() => {
-                // Ignore network errors in background fetch
+        fetch(event.request).then(networkResponse => {
+            caches.open(CACHE_NAME).then(cache => {
+                cache.put(event.request, networkResponse.clone());
             });
-            return cachedResponse || fetchPromise;
+            return networkResponse;
+        }).catch(() => {
+            return caches.match(event.request);
         })
     );
 });
