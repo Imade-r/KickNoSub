@@ -612,9 +612,9 @@ def get_trending():
     # Regional top streamers mapping
     streamers_db = {
         'kick': {
-            'fr': ['yassencore', 'aminematue', 'jl_tomy', 'chowh1', 'kamet0', 'teufeurs'],
-            'es': ['juansguarnizo', 'westcol', 'elxokas', 'markito', 'goncho', 'momo'],
-            'pt': ['coringa', 'paulinholoko', 'gaules', 'frttt', 'smurfdomuca', 'boltz'],
+            'fr': ['chowh1', 'yassencore', 'teufeurs', 'papesan', 'xqc', 'adinross'],
+            'es': ['juansguarnizo', 'westcol', 'elxokas', 'markito', 'goncho', 'xqc'],
+            'pt': ['coringa', 'paulinholoko', 'gaules', 'frttt', 'xqc', 'adinross'],
             'en': ['xqc', 'adinross', 'n3on', 'trainwreckstv', 'iceposeidon', 'ac7ionman']
         },
         'twitch': {
@@ -632,13 +632,26 @@ def get_trending():
     streamers = streamers_db[platform][lang]
     trending_vods = []
 
+    def _fetch_twitch_streamer_latest_vod(login):
+        try:
+            data = twitch.get_streamer_vods(login, scraper)
+            if not data or "vods" not in data:
+                return None
+            vods = data["vods"]
+            if vods and len(vods) > 0:
+                v = vods[0]
+                v['streamer'] = login
+                v['avatar'] = data.get("streamer", {}).get("avatar", "")
+                return v
+        except Exception:
+            pass
+        return None
+
     try:
         if platform == 'twitch':
             with ThreadPoolExecutor(max_workers=6) as executor:
-                results = executor.map(twitch.get_streamer_vods, streamers)
-            for res in results:
-                if res and isinstance(res, list) and len(res) > 0:
-                    trending_vods.append(res[0])
+                results = executor.map(_fetch_twitch_streamer_latest_vod, streamers)
+            trending_vods = [v for v in results if v]
         else:
             with ThreadPoolExecutor(max_workers=6) as executor:
                 results = executor.map(_fetch_streamer_latest_vod, streamers)
