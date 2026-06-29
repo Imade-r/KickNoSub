@@ -4,6 +4,7 @@ import os
 import re
 import time
 import threading
+import html as _html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
@@ -22,6 +23,36 @@ except Exception:
 
 scraper = cloudscraper.create_scraper()
 
+_INDEX_PATH = os.path.join(app.static_folder, 'index.html')
+
+# Rate limiting optionnel (protège les endpoints coûteux). Import facultatif :
+# l'app fonctionne même sans flask-limiter installé.
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(get_remote_address, app=app, storage_uri="memory://")
+except Exception:
+    limiter = None
+
+def maybe_limit(rule):
+    """Applique une limite si flask-limiter est dispo, sinon décorateur transparent."""
+    return limiter.limit(rule) if limiter else (lambda f: f)
+
+# Politique de sécurité du contenu. Permissive sur script/frame/connect pour ne pas
+# casser le lecteur (hls.js), les emotes Kick, les pubs et l'analytics ; mais verrouille
+# object/base/form/frame-ancestors (anti-injection d'objets, anti-détournement de base).
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob: https:; "
+    "media-src 'self' blob: https://stream.kick.com https://*.kick.com; "
+    "connect-src 'self' https:; "
+    "frame-src https:; "
+    "font-src 'self' data:; "
+    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+)
+
 # Extensions statiques que l'on peut mettre en cache long (elles changent rarement).
 _LONG_CACHE_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf')
 
@@ -34,6 +65,7 @@ def add_security_and_cache_headers(response):
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
     response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
+    response.headers.setdefault('Content-Security-Policy', CSP)
 
     # ── Cache : médias en cache long ; code (HTML/JS/CSS) revalidé pour éviter le stale ──
     path = request.path or ''
@@ -50,6 +82,11 @@ def add_security_and_cache_headers(response):
 _channel_cache = {}
 _cache_lock = threading.Lock()
 CHANNEL_CACHE_TTL = 300  # 5 minutes
+
+# ── Cache des URLs de stream résolues (évite de re-sonder ~33 URLs à chaque chargement) ──
+_stream_cache = {}
+_stream_lock = threading.Lock()
+STREAM_CACHE_TTL = 1800  # 30 minutes
 
 def get_kick_channel_info(channel_slug):
     now = time.time()
@@ -81,6 +118,13 @@ def _check_stream_url(url):
     return None
 
 def find_stream_url(channel_name, video_slug):
+    # Cache : si l'URL de cette VOD a déjà été résolue récemment, on la réutilise.
+    now = time.time()
+    with _stream_lock:
+        cached = _stream_cache.get(video_slug)
+        if cached and now - cached[1] < STREAM_CACHE_TTL:
+            return cached[0]
+
     channel = get_kick_channel_info(channel_name)
     if not channel or 'previous_livestreams' not in channel:
         return {"error": "Channel not found or no past streams available"}
@@ -135,7 +179,7 @@ def find_stream_url(channel_name, video_slug):
                     break
 
         if found:
-            return {
+            result = {
                 "stream_url": found,
                 "metadata": target_video,
                 "channel": {
@@ -144,6 +188,9 @@ def find_stream_url(channel_name, video_slug):
                     "profile_pic": channel.get("user", {}).get("profile_pic")
                 }
             }
+            with _stream_lock:
+                _stream_cache[video_slug] = (result, now)
+            return result
 
         return {"error": "Could not find a valid stream within offset limits."}
     except Exception as e:
@@ -186,8 +233,71 @@ def find_clip_stream(clip_id):
         }
     }
 
+def get_vod_meta(kick_url):
+    """Métadonnées légères (titre, miniature, streamer) d'une VOD, pour les balises OG."""
+    try:
+        if not kick_url.startswith('http'):
+            kick_url = 'https://' + kick_url
+        if 'kick.com' not in kick_url or 'video' not in kick_url:
+            return None
+        parts = kick_url.split('/')
+        channel_name = parts[3] if len(parts) > 3 else ''
+        video_slug   = parts[5] if len(parts) > 5 else ''
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,30}', channel_name) or not video_slug:
+            return None
+        channel = get_kick_channel_info(channel_name)
+        if not channel:
+            return None
+        for vo in channel.get('previous_livestreams', []):
+            v = vo.get('video', {})
+            if v and v.get('uuid') == video_slug:
+                return {
+                    'title':     vo.get('session_title') or 'VOD Kick',
+                    'thumbnail': (vo.get('thumbnail') or {}).get('src', ''),
+                    'streamer':  (channel.get('user') or {}).get('username', channel_name),
+                }
+    except Exception:
+        return None
+    return None
+
+def _render_index_with_meta(vod_url):
+    """Injecte titre/description/image OG dynamiques pour un partage de lien VOD riche."""
+    meta = get_vod_meta(vod_url)
+    if not meta:
+        return None
+    try:
+        with open(_INDEX_PATH, 'r', encoding='utf-8') as f:
+            doc = f.read()
+    except Exception:
+        return None
+    title = _html.escape(f"{meta['title']} — {meta['streamer']} | KickNoSub", quote=True)
+    desc  = _html.escape(f"Regarde « {meta['title']} » de {meta['streamer']} sur KickNoSub, sans abonnement.", quote=True)
+    img   = _html.escape(meta['thumbnail'] or '/static/logo.png', quote=True)
+
+    def repl(pattern, value):
+        return lambda d: re.sub(pattern, lambda m: m.group(1) + value + m.group(2), d, count=1)
+
+    for fn in (
+        repl(r'(<meta property="og:title" content=")[^"]*(")', title),
+        repl(r'(<meta property="og:description" content=")[^"]*(")', desc),
+        repl(r'(<meta property="og:image" content=")[^"]*(")', img),
+        repl(r'(<meta name="twitter:title" content=")[^"]*(")', title),
+        repl(r'(<meta name="twitter:description" content=")[^"]*(")', desc),
+        repl(r'(<meta name="twitter:image" content=")[^"]*(")', img),
+        repl(r'(<meta property="og:image:width" content=")[^"]*(")', '1280'),
+        repl(r'(<meta property="og:image:height" content=")[^"]*(")', '720'),
+    ):
+        doc = fn(doc)
+    doc = doc.replace('name="twitter:card" content="summary"', 'name="twitter:card" content="summary_large_image"')
+    return doc
+
 @app.route('/')
 def index():
+    vod = request.args.get('vod')
+    if vod:
+        rendered = _render_index_with_meta(vod)
+        if rendered:
+            return app.response_class(rendered, mimetype='text/html')
     return send_from_directory('static', 'index.html')
 
 @app.route('/<path:path>')
@@ -195,6 +305,7 @@ def serve_static(path):
     return send_from_directory('static', path)
 
 @app.route('/api/get_stream', methods=['POST'])
+@maybe_limit("20 per minute")
 def get_stream():
     data = request.json
     url = data.get('url', '')
@@ -236,6 +347,7 @@ def get_stream():
     return jsonify({"error": "Invalid Kick VOD URL provided."}), 400
 
 @app.route('/api/chat', methods=['GET'])
+@maybe_limit("90 per minute")
 def get_chat():
     channel_id = request.args.get('channel_id', '')
     start_time = request.args.get('start_time', '')
@@ -258,6 +370,7 @@ def get_chat():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/streamer_vods', methods=['GET'])
+@maybe_limit("30 per minute")
 def get_streamer_vods():
     slug = request.args.get('slug', '').strip().lower()
     if not slug:
