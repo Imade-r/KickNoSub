@@ -285,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const vodTitle = data.metadata?.session_title || 'Kick VOD';
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
-                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id);
+                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id, data.storyboard);
                 // Clips et VOD Twitch n'ont pas de rediffs liées (pas de recherche streamer Twitch)
                 if (data.is_clip || data.is_twitch) {
                     clearRelatedVods();
@@ -403,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Initialize Player ───────────────────
-    function initializePlayer(m3u8Url, metadata, channel, isClip = false, isTwitch = false, twitchVodId = null) {
+    function initializePlayer(m3u8Url, metadata, channel, isClip = false, isTwitch = false, twitchVodId = null, storyboard = null) {
         if (heroSection) heroSection.style.display = 'none';
         document.querySelector('#home-view .how-it-works')?.style.setProperty('display', 'none');
         document.getElementById('trending-section')?.style.setProperty('display', 'none');
@@ -521,10 +521,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     else hls.destroy();
                 });
 
-                // Aperçu image au survol : mémorise la source (2e flux créé au 1er survol).
-                // Exclu pour Twitch : la vidéo transite déjà par notre proxy, on n'ajoute
-                // pas un 2e flux proxifié — repli sur la tooltip de temps.
-                if (!isClip && !isTwitch) armSeekPreview(m3u8Url);
+                // Aperçu au survol : Twitch utilise son storyboard natif (léger, pas de
+                // 2e flux) ; Kick extrait des frames via un 2e flux créé au 1er survol.
+                if (isTwitch) setupTwitchPreview(storyboard);
+                else if (!isClip) armSeekPreview(m3u8Url);
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = m3u8Url;
                 video.addEventListener('loadedmetadata', () => {
@@ -875,6 +875,43 @@ document.addEventListener('DOMContentLoaded', () => {
         previewHls = null;
         previewVideo?.remove();
         previewVideo = null;
+        twitchStoryboard = null;
+        twitchSbImages = {};
+    }
+
+    // ── Aperçu Twitch via storyboard natif (sprite de vignettes, ultra léger) ──
+    let twitchStoryboard = null;
+    let twitchSbImages   = {};   // index de planche -> Image préchargée
+
+    function setupTwitchPreview(sb) {
+        twitchStoryboard = (sb && Array.isArray(sb.images) && sb.images.length) ? sb : null;
+        twitchSbImages = {};
+        if (!twitchStoryboard) return;
+        twitchStoryboard.images.forEach((url, i) => {
+            // Pas de crossOrigin : on ne fait qu'afficher (drawImage), pas de lecture
+            // de pixels — l'image se charge même si cloudfront n'envoie pas de CORS.
+            const img = new Image();
+            img.src = url;
+            twitchSbImages[i] = img;
+        });
+    }
+
+    function drawTwitchPreviewAt(t) {
+        const sb = twitchStoryboard;
+        const canvas = document.getElementById('seek-preview-canvas');
+        if (!sb || !canvas || !sb.interval) return;
+        let idx = Math.floor(t / sb.interval);
+        idx = Math.max(0, Math.min((sb.count || 1) - 1, idx));
+        const perSheet = Math.max(1, sb.cols * sb.rows);
+        const sheet = Math.floor(idx / perSheet);
+        const tile  = idx % perSheet;
+        const sx = (tile % sb.cols) * sb.tileW;
+        const sy = Math.floor(tile / sb.cols) * sb.tileH;
+        const img = twitchSbImages[sheet];
+        if (!img || !img.complete || !img.naturalWidth) return;
+        try {
+            canvas.getContext('2d').drawImage(img, sx, sy, sb.tileW, sb.tileH, 0, 0, canvas.width, canvas.height);
+        } catch (_) {}
     }
 
     // ── Overlay d'aide des raccourcis clavier (touche ?) ────────────────────
@@ -1098,17 +1135,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const x    = pct * rect.width;
             const t    = pct * video.duration;
 
-            ensureSeekPreview();   // création paresseuse au 1er survol (no-op ensuite)
-
-            if (previewVideo && previewReady && previewBox) {
-                // Aperçu vidéo : on dessine la frame et on affiche le temps dans la boîte
-                requestPreviewAt(t);
+            const showPreviewBox = () => {
                 const pw = previewBox.offsetWidth || 160;
                 previewBox.style.left = Math.max(pw / 2, Math.min(rect.width - pw / 2, x)) + 'px';
                 previewBox.style.opacity = '1';
                 const tl = document.getElementById('seek-preview-time');
                 if (tl) tl.textContent = formatTime(t);
                 if (seekTooltip) seekTooltip.style.opacity = '0';
+            };
+
+            if (twitchStoryboard && previewBox) {
+                // Twitch : vignette du storyboard natif (instantané, aucun flux)
+                drawTwitchPreviewAt(t);
+                showPreviewBox();
+                return;
+            }
+
+            ensureSeekPreview();   // création paresseuse au 1er survol (no-op ensuite)
+
+            if (previewVideo && previewReady && previewBox) {
+                // Kick : on dessine la frame extraite et on affiche le temps
+                requestPreviewAt(t);
+                showPreviewBox();
             } else if (seekTooltip) {
                 // Repli : tooltip de temps seul (mobile, clips, Safari natif, aperçu pas prêt)
                 const half = seekTooltip.offsetWidth / 2;

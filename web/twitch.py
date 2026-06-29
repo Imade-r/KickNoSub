@@ -309,7 +309,8 @@ def resolve(vod_id, scraper):
         "login":     owner.get("login") or "",
         "avatar":    owner.get("profileImageURL") or "",
     }
-    return {"variants": variants, "meta": meta}
+    storyboard = parse_storyboard(seek, scraper)
+    return {"variants": variants, "meta": meta, "storyboard": storyboard}
 
 
 def get_chat(vod_id, scraper, offset=None, cursor=None):
@@ -371,6 +372,30 @@ def get_chat(vod_id, scraper, offset=None, cursor=None):
         "comments": comments,
         "cursor":   last_cursor,
         "hasNext":  bool((node.get("pageInfo") or {}).get("hasNextPage")),
+    }
+
+
+def parse_storyboard(seek_url, scraper):
+    """Transforme le storyboard Twitch (seekPreviewsURL) en données d'aperçu :
+    une planche de vignettes + coordonnées. Permet un aperçu au survol instantané
+    et léger (pas de 2e flux). Renvoie un dict ou None."""
+    data = _fetch_json(seek_url, scraper)
+    if not isinstance(data, list) or not data:
+        return None
+    # Qualité "low" = 1 seule planche en 160x90 (idéale pour une vignette).
+    sb = next((q for q in data if q.get("quality") == "low"), data[0])
+    imgs = sb.get("images") or []
+    if not imgs:
+        return None
+    base = seek_url.rsplit("/", 1)[0] + "/"
+    return {
+        "tileW":    sb.get("width", 160),
+        "tileH":    sb.get("height", 90),
+        "cols":     sb.get("cols", 5),
+        "rows":     sb.get("rows", 1),
+        "interval": sb.get("interval", 10),
+        "count":    sb.get("count", 0),
+        "images":   [base + i for i in imgs],
     }
 
 

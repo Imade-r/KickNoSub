@@ -325,6 +325,9 @@ def index():
 
 @app.route('/<path:path>')
 def serve_static(path):
+    # Ne jamais servir d'outillage/source non destiné au public.
+    if path.rsplit('.', 1)[-1].lower() in ('py', 'pyc', 'pyo', 'md', 'txt', 'bak', 'log', 'env'):
+        return "Not found", 404
     return send_from_directory('static', path)
 
 def _resolve_twitch_cached(vod_id):
@@ -354,6 +357,7 @@ def _twitch_stream_response(url):
         "stream_url": f"/api/twitch/master/{vod_id}.m3u8",
         "is_twitch": True,
         "vod_id": vod_id,
+        "storyboard": result.get("storyboard"),
         "metadata": {
             "session_title": meta["title"],
             "start_time":    meta["created_at"],
