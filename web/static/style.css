@@ -5755,6 +5755,17 @@ video::-webkit-media-controls-panel { display: none !important; }
     object-fit: contain;
 }
 
+/* Badges de chat Twitch (images) */
+.chat-badge-img {
+    display: inline-block;
+    vertical-align: middle;
+    height: 18px;
+    width: 18px;
+    margin: 0 3px 2px 0;
+    border-radius: 3px;
+    object-fit: contain;
+}
+
 /* ── Playback speed selector ──────────── */
 .player-speed-wrap {
     position: relative;

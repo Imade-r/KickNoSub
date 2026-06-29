@@ -5,6 +5,8 @@ TwitchNoSub : on interroge l'API GraphQL publique pour obtenir le `seekPreviewsU
 contournant le token sub-only d'usher.
 """
 import re
+import time
+import threading
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,6 +32,149 @@ QUALITIES = [
 # Domaines autorisés pour le proxy de playlist (anti-SSRF).
 _ALLOWED_PROXY_HOSTS = ('.cloudfront.net', '.ttvnw.net')
 
+# Caches des assets de chat (emotes tierces, badges) par identifiant de chaîne.
+_assets_lock = threading.Lock()
+_vod_channel = {}    # vod_id -> channel_id
+_emote_cache = {}    # channel_id -> (map nom->url, ts)
+_badge_cache = {}    # channel_id -> (map setID->version->{url,title}, ts)
+ASSET_TTL = 3600     # 1 h (les emotes/badges changent rarement)
+
+
+def _fetch_json(url, scraper, timeout=8):
+    try:
+        r = scraper.get(url, timeout=timeout)
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+
+def _channel_id_for_vod(vod_id, scraper):
+    vod_id = str(vod_id)
+    with _assets_lock:
+        if vod_id in _vod_channel:
+            return _vod_channel[vod_id]
+    q = 'query { video(id: "%s") { owner { id } } }' % vod_id
+    data = None
+    try:
+        r = scraper.post(GQL_URL, json={"query": q},
+                         headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"}, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+    except Exception:
+        data = None
+    cid = (((data or {}).get("data") or {}).get("video") or {}).get("owner", {}).get("id")
+    with _assets_lock:
+        _vod_channel[vod_id] = cid
+    return cid
+
+
+def get_emotes(channel_id, scraper):
+    """Map {nom_emote: url} agrégeant BTTV + FFZ + 7TV (global + chaîne), en cache."""
+    now = time.time()
+    with _assets_lock:
+        c = _emote_cache.get(channel_id)
+        if c and now - c[1] < ASSET_TTL:
+            return c[0]
+
+    emotes = {}
+
+    def add_bttv(items):
+        for e in (items or []):
+            if e.get("code") and e.get("id"):
+                emotes[e["code"]] = f"https://cdn.betterttv.net/emote/{e['id']}/2x"
+
+    def add_ffz(sets):
+        for s in (sets or {}).values():
+            for e in s.get("emoticons", []):
+                urls = e.get("urls", {})
+                url = urls.get("2") or urls.get("1")
+                if e.get("name") and url:
+                    emotes[e["name"]] = ("https:" + url) if url.startswith("//") else url
+
+    def add_7tv(items):
+        for e in (items or []):
+            if e.get("name") and e.get("id"):
+                emotes[e["name"]] = f"https://cdn.7tv.app/emote/{e['id']}/2x.webp"
+
+    add_bttv((_fetch_json("https://api.betterttv.net/3/cached/emotes/global", scraper)) or [])
+    g = _fetch_json("https://api.frankerfacez.com/v1/set/global", scraper)
+    add_ffz((g or {}).get("sets"))
+    sg = _fetch_json("https://7tv.io/v3/emote-sets/global", scraper)
+    add_7tv((sg or {}).get("emotes"))
+
+    if channel_id:
+        b = _fetch_json(f"https://api.betterttv.net/3/cached/users/twitch/{channel_id}", scraper)
+        if b:
+            add_bttv((b.get("channelEmotes") or []) + (b.get("sharedEmotes") or []))
+        f = _fetch_json(f"https://api.frankerfacez.com/v1/room/id/{channel_id}", scraper)
+        add_ffz((f or {}).get("sets"))
+        sv = _fetch_json(f"https://7tv.io/v3/users/twitch/{channel_id}", scraper)
+        add_7tv(((sv or {}).get("emote_set") or {}).get("emotes"))
+
+    with _assets_lock:
+        _emote_cache[channel_id] = (emotes, now)
+    return emotes
+
+
+def get_badges(channel_id, scraper):
+    """Map {setID: {version: {url, title}}} (badges globaux + chaîne), via GraphQL.
+    (L'ancienne API badges.twitch.tv a été fermée par Twitch.)"""
+    now = time.time()
+    with _assets_lock:
+        c = _badge_cache.get(channel_id)
+        if c and now - c[1] < ASSET_TTL:
+            return c[0]
+
+    badges = {}
+    q = ('query { badges { setID version title imageURL(size: DOUBLE) } '
+         'user(id: "%s") { broadcastBadges { setID version title imageURL(size: DOUBLE) } } }'
+         % (channel_id or "0"))
+    try:
+        r = scraper.post(GQL_URL, json={"query": q},
+                         headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"}, timeout=10)
+        data = (r.json().get("data") or {}) if r.status_code == 200 else {}
+    except Exception:
+        data = {}
+
+    def add(lst):  # les badges de chaîne écrasent les globaux (ex. badges d'abonné)
+        for b in (lst or []):
+            if b.get("setID") and b.get("imageURL"):
+                badges.setdefault(b["setID"], {})[b.get("version") or "1"] = {
+                    "url": b["imageURL"], "title": b.get("title") or b["setID"],
+                }
+
+    add(data.get("badges"))
+    add((data.get("user") or {}).get("broadcastBadges"))
+
+    with _assets_lock:
+        _badge_cache[channel_id] = (badges, now)
+    return badges
+
+
+def _apply_emotes(text, emote_map):
+    """Découpe un texte et remplace les mots correspondant à une emote tierce."""
+    if not emote_map or not text:
+        return [{"text": text}] if text else []
+    out = []
+    for i, tok in enumerate(text.split(" ")):
+        if i > 0:
+            out.append({"text": " "})
+        if tok and tok in emote_map:
+            out.append({"emote": emote_map[tok], "name": tok})
+        elif tok:
+            out.append({"text": tok})
+    return out
+
+
+def _resolve_badge(badge_map, set_id, version):
+    versions = badge_map.get(set_id)
+    if not versions:
+        return None
+    b = versions.get(version) or versions.get("1") or next(iter(versions.values()), None)
+    return b if (b and b.get("url")) else None
+
 
 def extract_vod_id(url):
     """Extrait l'identifiant numérique d'une URL de VOD Twitch."""
@@ -46,7 +191,7 @@ def _gql_video(vod_id, scraper):
     query = (
         'query { video(id: "%s") { broadcastType, createdAt, lengthSeconds, '
         'title, previewThumbnailURL(width: 1280, height: 720), seekPreviewsURL, '
-        'viewCount, owner { login, displayName, profileImageURL(width: 70) } } }'
+        'viewCount, owner { id, login, displayName, profileImageURL(width: 70) } } }'
         % vod_id
     )
     try:
@@ -101,6 +246,11 @@ def resolve(vod_id, scraper):
     video = _gql_video(vod_id, scraper)
     if not video:
         return {"error": "VOD Twitch introuvable"}
+
+    owner_id = (video.get("owner") or {}).get("id")
+    if owner_id:
+        with _assets_lock:
+            _vod_channel[str(vod_id)] = owner_id
 
     seek = video.get("seekPreviewsURL")
     if not seek:
@@ -187,6 +337,10 @@ def get_chat(vod_id, scraper, offset=None, cursor=None):
     except Exception:
         return {"error": "chat indisponible"}
 
+    channel_id = _channel_id_for_vod(vod_id, scraper)
+    emote_map = get_emotes(channel_id, scraper) if channel_id else {}
+    badge_map = get_badges(channel_id, scraper) if channel_id else {}
+
     comments, last_cursor = [], None
     for edge in node.get("edges", []):
         last_cursor = edge.get("cursor") or last_cursor
@@ -199,12 +353,18 @@ def get_chat(vod_id, scraper, offset=None, cursor=None):
             if emote and emote.get("emoteID"):
                 frags.append({"emote": EMOTE_URL.format(id=emote["emoteID"]), "name": f.get("text", "")})
             elif f.get("text"):
-                frags.append({"text": f["text"]})
+                frags.extend(_apply_emotes(f["text"], emote_map))   # emotes BTTV/FFZ/7TV
+        badges = []
+        for b in (msg.get("userBadges") or []):
+            bd = _resolve_badge(badge_map, b.get("setID", ""), b.get("version", ""))
+            if bd:
+                badges.append(bd)
         comments.append({
             "id":     n.get("id"),
             "offset": n.get("contentOffsetSeconds", 0),
             "user":   commenter.get("displayName") or commenter.get("login") or "?",
             "color":  msg.get("userColor") or "",
+            "badges": badges,
             "frags":  frags,
         })
     return {

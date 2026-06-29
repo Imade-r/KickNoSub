@@ -1591,13 +1591,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (c.offset > t || existing.has(String(c.id))) return;
             chatList.querySelector('.chat-status')?.remove();
             const color = resolveUsernameColor(c.color);
+            const badges = (c.badges || []).map(b =>
+                `<img class="chat-badge-img" src="${b.url}" alt="" title="${escapeHtml(b.title || '')}" loading="lazy">`).join('');
             const body = (c.frags || []).map(f => f.emote
                 ? `<img class="chat-emote" src="${f.emote}" alt=":${escapeHtml(f.name || '')}:" title=":${escapeHtml(f.name || '')}:" loading="lazy">`
                 : escapeHtml(f.text || '')).join('');
             const div = document.createElement('div');
             div.className  = 'chat-message';
             div.dataset.id = String(c.id);
-            div.innerHTML  = `<span class="chat-time">${formatTime(c.offset)}</span> <span class="chat-username" style="color:${color}">${escapeHtml(c.user)}</span><span style="color:var(--text-muted)">:</span> <span class="chat-content">${body}</span>`;
+            div.innerHTML  = `<span class="chat-time">${formatTime(c.offset)}</span> ${badges}<span class="chat-username" style="color:${color}">${escapeHtml(c.user)}</span><span style="color:var(--text-muted)">:</span> <span class="chat-content">${body}</span>`;
             chatList.appendChild(div);
             existing.add(String(c.id));
             appended = true;
