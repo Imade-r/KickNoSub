@@ -368,6 +368,7 @@ def _twitch_stream_response(url):
         "channel": {
             "id":          None,
             "slug":        meta["streamer"] or meta["login"],
+            "login":       meta["login"],          # handle pour la recherche des autres VODs
             "profile_pic": meta["avatar"],
         },
     })
@@ -397,6 +398,18 @@ def twitch_playlist():
     if playlist is None:
         return "Upstream error", 502
     return app.response_class(playlist, mimetype="application/vnd.apple.mpegurl")
+
+
+@app.route('/api/twitch/streamer_vods', methods=['GET'])
+@maybe_limit("30 per minute")
+def twitch_streamer_vods():
+    login = (request.args.get('login') or '').strip().lower()
+    if not re.fullmatch(r'[a-z0-9_]{1,30}', login):
+        return jsonify({"error": "Nom de chaîne Twitch invalide"}), 400
+    data = twitch.get_streamer_vods(login, scraper)
+    if not data:
+        return jsonify({"error": f"Chaîne Twitch '{login}' introuvable"}), 404
+    return jsonify(data)
 
 
 @app.route('/api/twitch/chat', methods=['GET'])

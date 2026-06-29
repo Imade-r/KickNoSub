@@ -99,3 +99,8 @@ def test_twitch_proxy_allows_cloudfront_host():
 def test_twitch_chat_rejects_invalid_vod(client):
     assert client.get('/api/twitch/chat', query_string={'vod': 'abc'}).status_code == 400
     assert client.get('/api/twitch/chat').status_code == 400
+
+
+def test_twitch_streamer_vods_rejects_invalid_login(client):
+    assert client.get('/api/twitch/streamer_vods', query_string={'login': 'bad/name'}).status_code == 400
+    assert client.get('/api/twitch/streamer_vods').status_code == 400

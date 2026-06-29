@@ -286,9 +286,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
                 initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id, data.storyboard);
-                // Clips et VOD Twitch n'ont pas de rediffs liées (pas de recherche streamer Twitch)
-                if (data.is_clip || data.is_twitch) {
+                if (data.is_clip) {
                     clearRelatedVods();
+                } else if (data.is_twitch) {
+                    const login = data.channel?.login;
+                    if (login) silentFetchTwitchRelatedVods(login, kickUrl);
+                    else clearRelatedVods();
                 } else {
                     const slug = data.channel?.slug;
                     if (slug) {
@@ -329,6 +332,26 @@ document.addEventListener('DOMContentLoaded', () => {
             _lastStreamerVods = data.vods  || [];
             _lastStreamerInfo = data.streamer || null;
             setCachedStreamer(slug, { vods: _lastStreamerVods, streamer: _lastStreamerInfo });
+            renderRelatedVods(currentUrl);
+        } catch (_) { /* silencieux */ }
+    }
+
+    async function silentFetchTwitchRelatedVods(login, currentUrl) {
+        const key = 'tw:' + login;
+        const cached = getCachedStreamer(key);
+        if (cached) {
+            _lastStreamerVods = cached.vods;
+            _lastStreamerInfo = cached.streamer;
+            renderRelatedVods(currentUrl);
+            return;
+        }
+        try {
+            const res = await fetch(`/api/twitch/streamer_vods?login=${encodeURIComponent(login)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            _lastStreamerVods = data.vods || [];
+            _lastStreamerInfo = data.streamer || null;
+            setCachedStreamer(key, { vods: _lastStreamerVods, streamer: _lastStreamerInfo });
             renderRelatedVods(currentUrl);
         } catch (_) { /* silencieux */ }
     }
@@ -1456,10 +1479,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Chat Logic ──────────────────────────
-    function handleTimeUpdate() {
+    // Sauvegarde la progression toutes les 5s (sauf tout près de la fin).
+    function maybeSaveProgress() {
         if (!video) return;
-        updateUIChat(video.currentTime);
-        // Save progress every 5s (avoid saving near the very end)
         const now = Date.now();
         if (now - lastProgressSave > 5000) {
             lastProgressSave = now;
@@ -1467,6 +1489,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveProgress(currentVODUrl, video.currentTime);
             }
         }
+    }
+
+    function handleTimeUpdate() {
+        if (!video) return;
+        updateUIChat(video.currentTime);
+        maybeSaveProgress();
     }
 
     function handleSeeking() {
@@ -1588,7 +1616,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatList.addEventListener('scroll', handleChatScroll, { passive: true });
         ensureChatScrollBtn();
 
-        twitchOnTime = () => renderTwitchChat();
+        twitchOnTime = () => { renderTwitchChat(); maybeSaveProgress(); };
         twitchOnSeek = () => resetTwitchChat();
         video?.addEventListener('timeupdate', twitchOnTime);
         video?.addEventListener('seeking', twitchOnSeek);
@@ -1698,12 +1726,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let _lastStreamerVods = [];
     let _lastStreamerInfo = null;
 
+    let _streamerPlatform = 'kick';
+
     async function fetchStreamerVods(slug) {
         if (!slug || !vodsGrid) return;
         slug = slug.trim().toLowerCase();
+        const platform = _streamerPlatform;
+        const cacheKey = (platform === 'twitch' ? 'tw:' : '') + slug;
 
         // Utilise le cache si disponible
-        const cached = getCachedStreamer(slug);
+        const cached = getCachedStreamer(cacheKey);
         if (cached) {
             _lastStreamerVods = cached.vods;
             _lastStreamerInfo = cached.streamer;
@@ -1728,12 +1760,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${Array(6).fill('<div class="vod-skeleton-card"><div class="vod-skeleton-thumb vods-skeleton"></div><div class="vod-skeleton-info"><div class="vods-skeleton vods-skeleton-title"></div><div class="vods-skeleton vods-skeleton-meta"></div></div></div>').join('')}
             </div>`;
         try {
-            const res  = await fetch(`/api/streamer_vods?slug=${encodeURIComponent(slug)}`);
+            const endpoint = platform === 'twitch'
+                ? `/api/twitch/streamer_vods?login=${encodeURIComponent(slug)}`
+                : `/api/streamer_vods?slug=${encodeURIComponent(slug)}`;
+            const res  = await fetch(endpoint);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Streamer introuvable');
             _lastStreamerVods = data.vods || [];
             _lastStreamerInfo = data.streamer || null;
-            setCachedStreamer(slug, { vods: _lastStreamerVods, streamer: _lastStreamerInfo });
+            setCachedStreamer(cacheKey, { vods: _lastStreamerVods, streamer: _lastStreamerInfo });
             renderVodsGrid(data.streamer, data.vods);
         } catch (err) {
             vodsGrid.innerHTML = `<div class="vods-status vods-error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>${escapeHtml(err.message)}</div>`;
@@ -1803,6 +1838,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    // Sélecteur de plateforme (Kick / Twitch) pour la recherche par streamer
+    document.querySelectorAll('#streamer-platform-toggle .platform-opt').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _streamerPlatform = btn.dataset.platform;
+            document.querySelectorAll('#streamer-platform-toggle .platform-opt')
+                .forEach(b => b.classList.toggle('active', b === btn));
+            const slug = streamerInput?.value.trim();
+            if (slug && slug.length >= 2) fetchStreamerVods(slug);   // relance sur la nouvelle plateforme
+        });
+    });
 
     document.getElementById('streamer-search-btn')?.addEventListener('click', () => {
         const slug = streamerInput?.value.trim();

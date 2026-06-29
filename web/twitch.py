@@ -313,6 +313,44 @@ def resolve(vod_id, scraper):
     return {"variants": variants, "meta": meta, "storyboard": storyboard}
 
 
+def get_streamer_vods(login, scraper, limit=24):
+    """VODs (archives) d'une chaîne Twitch, format compatible avec le front Kick."""
+    q = ('query { user(login: "%s") { displayName, login, profileImageURL(width: 70), '
+         'videos(first: %d, type: ARCHIVE, sort: TIME) { edges { node { id, title, '
+         'lengthSeconds, previewThumbnailURL(width: 320, height: 180), createdAt, viewCount } } } } }'
+         % (login, limit))
+    try:
+        r = scraper.post(GQL_URL, json={"query": q},
+                         headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"}, timeout=10)
+        user = ((r.json().get("data") or {}).get("user")) if r.status_code == 200 else None
+    except Exception:
+        user = None
+    if not user:
+        return None
+    vods = []
+    for edge in ((user.get("videos") or {}).get("edges") or []):
+        n = edge.get("node") or {}
+        if not n.get("id"):
+            continue
+        created = (n.get("createdAt") or "").replace("T", " ").replace("Z", "")  # format façon Kick
+        vods.append({
+            "url":       f"https://www.twitch.tv/videos/{n['id']}",
+            "title":     n.get("title") or "VOD Twitch",
+            "thumbnail": n.get("previewThumbnailURL") or "",
+            "duration":  int(n.get("lengthSeconds") or 0) * 1000,
+            "date":      created,
+            "views":     n.get("viewCount") or 0,
+        })
+    return {
+        "streamer": {
+            "slug":   user.get("login") or login,
+            "name":   user.get("displayName") or login,
+            "avatar": user.get("profileImageURL") or "",
+        },
+        "vods": vods,
+    }
+
+
 def get_chat(vod_id, scraper, offset=None, cursor=None):
     """Chat replay d'une VOD Twitch. Pagination par `offset` (secondes) au départ,
     puis par `cursor`. Renvoie {comments, cursor, hasNext} ou {error}."""
