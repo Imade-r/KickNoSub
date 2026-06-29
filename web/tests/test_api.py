@@ -62,3 +62,35 @@ def test_static_css_revalidated(client):
 def test_api_responses_not_stored(client):
     r = client.get('/api/chat')  # 400 mais les en-têtes de cache s'appliquent quand même
     assert r.headers.get('Cache-Control') == 'no-store'
+
+
+# ── Twitch ──
+
+def test_get_stream_rejects_unknown_platform(client):
+    r = client.post('/api/get_stream', json={'url': 'https://youtube.com/watch?v=x'})
+    assert r.status_code == 400
+
+
+def test_twitch_master_rejects_non_numeric_id(client):
+    assert client.get('/api/twitch/master/abc.m3u8').status_code == 400
+
+
+def test_twitch_proxy_rejects_non_twitch_host(client):
+    # Anti-SSRF : le proxy ne doit accepter que les CDN Twitch.
+    r = client.get('/api/twitch/playlist', query_string={'u': 'https://evil.example.com/x.m3u8'})
+    assert r.status_code == 403
+    r2 = client.get('/api/twitch/segment', query_string={'u': 'https://evil.example.com/0.ts'})
+    assert r2.status_code == 403
+
+
+def test_twitch_extract_vod_id():
+    import twitch
+    assert twitch.extract_vod_id('https://www.twitch.tv/videos/2807719385') == '2807719385'
+    assert twitch.extract_vod_id('twitch.tv/xqc/v/123456') == '123456'
+    assert twitch.extract_vod_id('https://kick.com/xqc/video/uuid') is None
+
+
+def test_twitch_proxy_allows_cloudfront_host():
+    import twitch
+    assert twitch.is_allowed_proxy_url('https://abc.cloudfront.net/x/index-dvr.m3u8') is True
+    assert twitch.is_allowed_proxy_url('https://evil.com/x.m3u8') is False

@@ -5,8 +5,11 @@ import re
 import time
 import threading
 import html as _html
+from urllib.parse import quote, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+
+import twitch
 
 app = Flask(__name__, static_folder='static')
 
@@ -46,7 +49,7 @@ CSP = (
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob: https:; "
-    "media-src 'self' blob: https://stream.kick.com https://*.kick.com; "
+    "media-src 'self' blob: https:; "
     "connect-src 'self' https:; "
     "frame-src https:; "
     "font-src 'self' data:; "
@@ -87,6 +90,11 @@ CHANNEL_CACHE_TTL = 300  # 5 minutes
 _stream_cache = {}
 _stream_lock = threading.Lock()
 STREAM_CACHE_TTL = 1800  # 30 minutes
+
+# ── Cache de résolution Twitch (variantes + métadonnées) par identifiant de VOD ──
+_twitch_cache = {}
+_twitch_lock = threading.Lock()
+TWITCH_CACHE_TTL = 1800  # 30 minutes
 
 def get_kick_channel_info(channel_slug):
     now = time.time()
@@ -238,6 +246,21 @@ def get_vod_meta(kick_url):
     try:
         if not kick_url.startswith('http'):
             kick_url = 'https://' + kick_url
+        # ── Twitch ──
+        if 'twitch.tv' in kick_url:
+            vod_id = twitch.extract_vod_id(kick_url)
+            if not vod_id:
+                return None
+            video = twitch._gql_video(vod_id, scraper)
+            if not video:
+                return None
+            owner = video.get('owner') or {}
+            return {
+                'title':     video.get('title') or 'VOD Twitch',
+                'thumbnail': video.get('previewThumbnailURL') or '',
+                'streamer':  owner.get('displayName') or owner.get('login') or 'Twitch',
+            }
+        # ── Kick ──
         if 'kick.com' not in kick_url or 'video' not in kick_url:
             return None
         parts = kick_url.split('/')
@@ -304,14 +327,113 @@ def index():
 def serve_static(path):
     return send_from_directory('static', path)
 
+def _resolve_twitch_cached(vod_id):
+    """Résout une VOD Twitch avec cache (variantes + métadonnées)."""
+    now = time.time()
+    with _twitch_lock:
+        cached = _twitch_cache.get(vod_id)
+        if cached and now - cached[1] < TWITCH_CACHE_TTL:
+            return cached[0]
+    result = twitch.resolve(vod_id, scraper)
+    if "error" not in result:
+        with _twitch_lock:
+            _twitch_cache[vod_id] = (result, now)
+    return result
+
+
+def _twitch_stream_response(url):
+    """Construit la réponse get_stream (forme compatible Kick) pour une VOD Twitch."""
+    vod_id = twitch.extract_vod_id(url)
+    if not vod_id:
+        return jsonify({"error": "URL de VOD Twitch invalide (attendu twitch.tv/videos/...)"}), 400
+    result = _resolve_twitch_cached(vod_id)
+    if "error" in result:
+        return jsonify(result), 404
+    meta = result["meta"]
+    return jsonify({
+        "stream_url": f"/api/twitch/master/{vod_id}.m3u8",
+        "is_twitch": True,
+        "metadata": {
+            "session_title": meta["title"],
+            "start_time":    meta["created_at"],
+            "duration":      meta["duration"],
+            "views":         meta["views"],
+            "thumbnail":     {"src": meta["thumbnail"]},
+        },
+        "channel": {
+            "id":          None,
+            "slug":        meta["streamer"] or meta["login"],
+            "profile_pic": meta["avatar"],
+        },
+    })
+
+
+@app.route('/api/twitch/master/<vod_id>.m3u8', methods=['GET'])
+@maybe_limit("60 per minute")
+def twitch_master(vod_id):
+    if not re.fullmatch(r'\d{1,15}', vod_id):
+        return "Invalid vod id", 400
+    result = _resolve_twitch_cached(vod_id)
+    if "error" in result:
+        return result["error"], 404
+    proxy = lambda u: "/api/twitch/playlist?u=" + quote(u, safe="")
+    playlist = twitch.build_master_playlist(result["variants"], proxy)
+    return app.response_class(playlist, mimetype="application/vnd.apple.mpegurl")
+
+
+@app.route('/api/twitch/playlist', methods=['GET'])
+@maybe_limit("300 per minute")
+def twitch_playlist():
+    u = unquote(request.args.get('u', ''))
+    if not twitch.is_allowed_proxy_url(u):
+        return "Forbidden", 403
+    seg_proxy = lambda s: "/api/twitch/segment?u=" + quote(s, safe="")
+    playlist = twitch.rewrite_media_playlist(u, scraper, seg_proxy)
+    if playlist is None:
+        return "Upstream error", 502
+    return app.response_class(playlist, mimetype="application/vnd.apple.mpegurl")
+
+
+@app.route('/api/twitch/segment', methods=['GET'])
+def twitch_segment():
+    # Proxy en streaming des segments CDN Twitch (qui n'envoient pas de CORS).
+    u = unquote(request.args.get('u', ''))
+    if not twitch.is_allowed_proxy_url(u):
+        return "Forbidden", 403
+    try:
+        upstream = scraper.get(u, stream=True, timeout=20)
+    except Exception:
+        return "Upstream error", 502
+    if not upstream.ok:
+        return "Upstream error", upstream.status_code
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    resp = app.response_class(generate(), mimetype=upstream.headers.get('Content-Type', 'video/mp2t'))
+    cl = upstream.headers.get('Content-Length')
+    if cl:
+        resp.headers['Content-Length'] = cl
+    resp.headers['Cache-Control'] = 'public, max-age=86400'  # segments VOD immuables
+    return resp
+
+
 @app.route('/api/get_stream', methods=['POST'])
 @maybe_limit("20 per minute")
 def get_stream():
     data = request.json
     url = data.get('url', '')
 
+    if "twitch.tv" in url:
+        return _twitch_stream_response(url)
+
     if "kick.com" not in url:
-        return jsonify({"error": "Invalid Kick VOD URL provided."}), 400
+        return jsonify({"error": "Lien invalide : colle une URL de VOD Kick ou Twitch."}), 400
 
     if not url.startswith("http"):
         url = "https://" + url

@@ -221,8 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Watch Button ────────────────────────
     loadBtn?.addEventListener('click', () => {
         const url = urlInput?.value.trim();
-        if (!url) { showError('Veuillez entrer une URL de VOD Kick.'); return; }
-        if (!url.includes('kick.com/')) { showError('Veuillez entrer une URL Kick.com valide.'); return; }
+        if (!url) { showError('Veuillez entrer une URL de VOD Kick ou Twitch.'); return; }
+        if (!/kick\.com\/|twitch\.tv\//.test(url)) { showError('Colle un lien de VOD Kick ou Twitch valide.'); return; }
         fetchStreamUrl(url);
     });
 
@@ -285,9 +285,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const vodTitle = data.metadata?.session_title || 'Kick VOD';
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
-                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip);
-                // Les clips n'ont pas de chat synchronisé ni de rediffs liées
-                if (data.is_clip) {
+                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch);
+                // Clips et VOD Twitch n'ont pas de chat synchronisé ni de rediffs liées
+                if (data.is_clip || data.is_twitch) {
                     clearRelatedVods();
                 } else {
                     const slug = data.channel?.slug;
@@ -403,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Initialize Player ───────────────────
-    function initializePlayer(m3u8Url, metadata, channel, isClip = false) {
+    function initializePlayer(m3u8Url, metadata, channel, isClip = false, isTwitch = false) {
         if (heroSection) heroSection.style.display = 'none';
         document.querySelector('#home-view .how-it-works')?.style.setProperty('display', 'none');
         document.getElementById('trending-section')?.style.setProperty('display', 'none');
@@ -521,9 +521,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     else hls.destroy();
                 });
 
-                // Aperçu image au survol de la barre : on mémorise juste la source,
-                // le 2e flux n'est créé qu'au premier survol (clips exclus).
-                if (!isClip) armSeekPreview(m3u8Url);
+                // Aperçu image au survol : mémorise la source (2e flux créé au 1er survol).
+                // Exclu pour Twitch : la vidéo transite déjà par notre proxy, on n'ajoute
+                // pas un 2e flux proxifié — repli sur la tooltip de temps.
+                if (!isClip && !isTwitch) armSeekPreview(m3u8Url);
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = m3u8Url;
                 video.addEventListener('loadedmetadata', () => {
@@ -542,9 +543,9 @@ document.addEventListener('DOMContentLoaded', () => {
             video.addEventListener('ended', onVideoEnded);
         }
 
-        // Les clips n'ont pas de chat synchronisé → masquer la sidebar
+        // Clips et VOD Twitch n'ont pas de chat synchronisé → masquer la sidebar
         const chatSidebar = document.getElementById('vod-chat-sidebar');
-        if (isClip) {
+        if (isClip || isTwitch) {
             chatActiveSession++; // stoppe toute boucle de chat en cours
             if (chatSidebar) chatSidebar.style.display = 'none';
         } else if (chatList) {
@@ -2252,7 +2253,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Charger une VOD depuis l'URL si ?vod= présent
     const urlParams = new URLSearchParams(window.location.search);
     const vodFromUrl = urlParams.get('vod');
-    if (vodFromUrl && vodFromUrl.includes('kick.com/')) {
+    if (vodFromUrl && /kick\.com\/|twitch\.tv\//.test(vodFromUrl)) {
         if (urlInput) urlInput.value = vodFromUrl;
         setTimeout(() => fetchStreamUrl(vodFromUrl), 300);
     }
