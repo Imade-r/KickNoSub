@@ -1920,25 +1920,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!section || !grid) return;
         
         // Tab switching logic
-        const tabs = section.querySelectorAll('.search-tab');
+        const tabs = section.querySelectorAll('.trending-tab');
         const gridKick = document.getElementById('trending-grid');
         const gridTwitch = document.getElementById('trending-twitch-grid');
         
-        tabs.forEach(tBtn => {
-            tBtn.addEventListener('click', () => {
-                tabs.forEach(btn => btn.classList.remove('active'));
-                tBtn.classList.add('active');
-                if (tBtn.dataset.tab === 'kick-trending') {
-                    gridTwitch.style.display = 'none';
-                    gridKick.style.display = '';
-                    loadTrendingGrid(gridKick, 'kick');
-                } else {
-                    gridKick.style.display = 'none';
-                    gridTwitch.style.display = '';
-                    loadTrendingGrid(gridTwitch, 'twitch');
-                }
+        if (!section.dataset.tabsBound) {
+            tabs.forEach(tBtn => {
+                tBtn.addEventListener('click', () => {
+                    tabs.forEach(btn => btn.classList.remove('is-active'));
+                    tBtn.classList.add('is-active');
+                    if (tBtn.dataset.tab === 'kick-trending') {
+                        gridTwitch.style.display = 'none';
+                        gridKick.style.display = '';
+                        loadTrendingGrid(gridKick, 'kick');
+                    } else {
+                        gridKick.style.display = 'none';
+                        gridTwitch.style.display = '';
+                        loadTrendingGrid(gridTwitch, 'twitch');
+                    }
+                });
             });
-        });
+            section.dataset.tabsBound = 'true';
+        }
 
         if (_trendingLoaded && !force) { section.style.display = ''; return; }
         
