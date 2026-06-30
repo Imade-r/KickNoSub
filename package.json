@@ -1,0 +1,13 @@
+{
+  "name": "kicknosub",
+  "version": "1.4.0",
+  "private": true,
+  "description": "Outils de lint pour le frontend KickNoSub (CI uniquement).",
+  "scripts": {
+    "lint": "eslint web/static/main.js web/static/lang.js web/static/sw.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0"
+  }
+}

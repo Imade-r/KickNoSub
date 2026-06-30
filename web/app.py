@@ -467,6 +467,21 @@ def twitch_chat():
     return jsonify(result), (200 if "error" not in result else 502)
 
 
+@app.route('/api/log', methods=['POST'])
+@maybe_limit("30 per minute")
+def client_log():
+    """Reçoit les erreurs JavaScript runtime du navigateur pour les tracer côté
+    serveur (observabilité). Tailles plafonnées, sans données sensibles."""
+    data = request.get_json(silent=True) or {}
+    msg    = str(data.get('message', ''))[:300]
+    source = str(data.get('source', ''))[:200]
+    line   = str(data.get('line', ''))[:10]
+    stack  = str(data.get('stack', ''))[:600]
+    if msg:
+        logger.warning("[client] %s @ %s:%s\n%s", msg, source, line, stack)
+    return ('', 204)
+
+
 @app.route('/api/twitch/segment', methods=['GET'])
 def twitch_segment():
     # Proxy en streaming des segments CDN Twitch (qui n'envoient pas de CORS).

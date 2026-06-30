@@ -4,3 +4,6 @@ ffmpeg/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Node
+node_modules/
