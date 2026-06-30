@@ -5,7 +5,7 @@ const globals = require("globals");
 
 module.exports = [
   {
-    files: ["web/static/main.js", "web/static/lang.js"],
+    files: ["web/static/main.js", "web/static/lang.js", "web/static/js/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",

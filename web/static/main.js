@@ -2,33 +2,6 @@
 // KickNoSub - Main Application Logic
 // ========================================
 
-// ── Remontée des erreurs JS runtime vers le serveur (observabilité) ──────────
-// Enregistré tout en haut pour capturer aussi les erreurs d'initialisation.
-(function () {
-    let sent = 0;
-    function report(payload) {
-        if (sent >= 10) return;   // anti-spam : 10 erreurs max par session
-        sent++;
-        try {
-            const body = JSON.stringify(payload);
-            if (navigator.sendBeacon) {
-                navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' }));
-            } else {
-                fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
-            }
-        } catch (_) {}
-    }
-    window.addEventListener('error', e => report({
-        message: e.message, source: e.filename, line: e.lineno,
-        stack: e.error && e.error.stack ? String(e.error.stack) : '',
-    }));
-    window.addEventListener('unhandledrejection', e => {
-        const r = e.reason;
-        report({ message: 'unhandledrejection: ' + (r && r.message ? r.message : r), stack: r && r.stack ? String(r.stack) : '' });
-    });
-})();
-
-
 document.addEventListener('DOMContentLoaded', () => {
 
     // ── DOM References ──────────────────────
@@ -65,6 +38,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Cache streamer VODs (slug → { data, ts }), TTL 5 min
     const _streamerCache = new Map();
     const CACHE_TTL_MS   = 5 * 60 * 1000;
+
+    function isDisplayed(el) {
+        return !!el && getComputedStyle(el).display !== 'none';
+    }
 
     function getCachedStreamer(slug) {
         const entry = _streamerCache.get(slug);
@@ -460,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadBtn.disabled = true;
 
         // Si un player est déjà ouvert, afficher l'overlay de transition
-        const playerAlreadyOpen = playerSection && playerSection.style.display !== 'none';
+        const playerAlreadyOpen = isDisplayed(playerSection);
         if (playerAlreadyOpen) showPlayerLoading(switchTitle, switchThumb);
 
         try {
@@ -586,7 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
         section.className = 'related-vods-section';
         section.innerHTML = `
             <div class="related-vods-header">
-                <img src="${escapeHtml(_lastStreamerInfo.avatar || '')}" class="related-vods-avatar" alt="" onerror="this.style.display='none'">
+                <img src="${escapeHtml(_lastStreamerInfo.avatar || '')}" class="related-vods-avatar" alt="" data-hide-on-error="true">
                 <div class="related-vods-title">${t('related_vods_title')} <strong>${escapeHtml(_lastStreamerInfo.name || _lastStreamerInfo.slug)}</strong></div>
             </div>
             <div class="related-vods-grid">
@@ -598,7 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="vod-result-card related-vod-item" data-url="${escapeHtml(vod.url)}" data-thumb="${escapeHtml(vod.thumbnail || '')}">
                         <div class="vod-result-thumb">
                             <div class="vod-skeleton"></div>
-                            ${vod.thumbnail ? `<img src="${escapeHtml(vod.thumbnail)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+                            ${vod.thumbnail ? `<img src="${escapeHtml(vod.thumbnail)}" alt="" loading="lazy" data-hide-on-error="true">` : ''}
                             ${vod.duration  ? `<span class="vod-result-duration">${formatDuration(vod.duration)}</span>` : ''}
                             <div class="vod-result-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
                             ${pct > 0 ? `<div class="history-progress-bar"><div class="history-progress-fill" style="width:${pct}%"></div></div>` : ''}
@@ -671,7 +648,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             streamInfo.innerHTML = `
                 <img src="${escapeHtml(channel.profile_pic || '')}" alt="${escapeHtml(channel.slug)}"
-                     class="streamer-avatar" onerror="this.style.display='none'">
+                     class="streamer-avatar" data-hide-on-error="true">
                 <div class="stream-details">
                     <div class="stream-title">${escapeHtml(metadata.session_title || 'Kick VOD')}</div>
                     <div class="stream-meta">
@@ -729,7 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Action buttons (copy, share, favorites)
             const actionBtns = document.getElementById('player-action-btns');
             if (actionBtns) {
-                actionBtns.style.display = '';
+                actionBtns.style.display = 'flex';
                 updateFavBtn();
             }
         }
@@ -806,11 +783,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (chatSidebar) chatSidebar.style.display = 'none';
         } else if (isTwitch && chatList) {
             // Chat replay Twitch (via /api/twitch/chat, synchronisé sur la lecture)
-            if (chatSidebar) chatSidebar.style.display = '';
+            if (chatSidebar) chatSidebar.style.display = 'flex';
             window._chatStarted = false;
             tryStartChat();
         } else if (chatList) {
-            if (chatSidebar) chatSidebar.style.display = '';
+            if (chatSidebar) chatSidebar.style.display = 'flex';
             chatMessages      = [];
             lastRenderedMsgId = null;
             isUserScrolled    = false;
@@ -1371,8 +1348,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function syncPlayIcons(paused) {
-            overlay.querySelectorAll('.pi-play').forEach(el  => el.style.display = paused ? '' : 'none');
-            overlay.querySelectorAll('.pi-pause').forEach(el => el.style.display = paused ? 'none' : '');
+            overlay.querySelectorAll('.pi-play').forEach(el  => el.style.display = paused ? 'inline' : 'none');
+            overlay.querySelectorAll('.pi-pause').forEach(el => el.style.display = paused ? 'none' : 'inline');
         }
 
         const onPlay  = () => { syncPlayIcons(false); showControls(); };
@@ -1512,8 +1489,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function syncMuteIcons() {
             const muted = !video || video.muted || video.volume === 0;
-            overlay.querySelectorAll('.pi-vol').forEach(el  => el.style.display = muted ? 'none' : '');
-            overlay.querySelectorAll('.pi-mute').forEach(el => el.style.display = muted ? '' : 'none');
+            overlay.querySelectorAll('.pi-vol').forEach(el  => el.style.display = muted ? 'none' : 'inline');
+            overlay.querySelectorAll('.pi-mute').forEach(el => el.style.display = muted ? 'inline' : 'none');
         }
 
         const onMuteClick = () => {
@@ -1546,8 +1523,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const onFsChange = () => {
             const isFs = !!document.fullscreenElement;
-            overlay.querySelectorAll('.pi-fsin').forEach(el  => el.style.display = isFs ? 'none' : '');
-            overlay.querySelectorAll('.pi-fsout').forEach(el => el.style.display = isFs ? '' : 'none');
+            overlay.querySelectorAll('.pi-fsin').forEach(el  => el.style.display = isFs ? 'none' : 'inline');
+            overlay.querySelectorAll('.pi-fsout').forEach(el => el.style.display = isFs ? 'inline' : 'none');
         };
         document.addEventListener('fullscreenchange', onFsChange);
 
@@ -1618,9 +1595,9 @@ document.addEventListener('DOMContentLoaded', () => {
         function updateChatOverlayBtnVisibility() {
             const isPhoneLandscape = window.innerWidth <= 920 && window.innerHeight <= 520;
             if (window.innerWidth <= 768 || isPhoneLandscape || playerSection?.classList.contains('theater-mode')) {
-                chatOverlayBtn.style.display = '';
+                chatOverlayBtn.classList.add('chat-overlay-btn-visible');
             } else {
-                chatOverlayBtn.style.display = 'none';
+                chatOverlayBtn.classList.remove('chat-overlay-btn-visible');
                 // Reset overlay if exiting
                 const sidebar = document.getElementById('vod-chat-sidebar');
                 if (sidebar && sidebar.classList.contains('is-overlay')) {
@@ -1648,7 +1625,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // ── Keyboard shortcuts ──────────────
         const onKeyDown = e => {
-            if (playerSection?.style.display === 'none') return;
+            if (!isDisplayed(playerSection)) return;
             if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
             switch (e.key) {
                 case ' ': case 'k': e.preventDefault(); togglePlay(); break;
@@ -1802,11 +1779,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         chatList?.removeEventListener('scroll', handleChatScroll);
         if (playerSection) playerSection.style.display = 'none';
-        if (heroSection)   heroSection.style.display   = '';
-        document.querySelector('#home-view .how-it-works')?.style.removeProperty('display');
-        document.getElementById('trending-section')?.style.removeProperty('display');
+        if (heroSection)   heroSection.style.display   = 'block';
+        document.querySelector('#home-view .how-it-works')?.style.setProperty('display', 'block');
+        document.getElementById('trending-section')?.style.setProperty('display', 'block');
         // Ré-affiche la sidebar chat (masquée par les clips)
-        document.getElementById('vod-chat-sidebar')?.style.removeProperty('display');
+        document.getElementById('vod-chat-sidebar')?.style.setProperty('display', 'flex');
         if (urlInput) urlInput.value = '';
         const chatHeader = document.querySelector('.chat-header-title');
         if (chatHeader) chatHeader.textContent = 'Chat de la VOD';
@@ -2057,8 +2034,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const isUrl = tab === 'url';
         tabUrl?.classList.toggle('active', isUrl);
         tabStreamer?.classList.toggle('active', !isUrl);
-        if (panelUrl)    panelUrl.style.display    = isUrl ? '' : 'none';
-        if (panelStream) panelStream.style.display = isUrl ? 'none' : '';
+        if (panelUrl)    panelUrl.style.display    = isUrl ? 'block' : 'none';
+        if (panelStream) panelStream.style.display = isUrl ? 'none' : 'block';
         if (isUrl && vodsGrid) vodsGrid.style.display = 'none';
     }
 
@@ -2128,7 +2105,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         vodsGrid.innerHTML = `
             <div class="vods-streamer-header">
-                <img src="${escapeHtml(streamer.avatar || '')}" class="vods-streamer-avatar" alt="" onerror="this.style.display='none'">
+                <img src="${escapeHtml(streamer.avatar || '')}" class="vods-streamer-avatar" alt="" data-hide-on-error="true">
                 <div>
                     <div class="vods-streamer-name">${escapeHtml(streamer.name || streamer.slug)}</div>
                     <div class="vods-streamer-count">${vods.length} VOD${vods.length > 1 ? 's' : ''} disponible${vods.length > 1 ? 's' : ''}</div>
@@ -2151,7 +2128,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="vod-result-card" data-url="${escapeHtml(vod.url)}" data-thumb="${escapeHtml(vod.thumbnail || '')}">
                         <div class="vod-result-thumb">
                             <div class="vod-skeleton"></div>
-                            ${vod.thumbnail ? `<img src="${escapeHtml(vod.thumbnail)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+                            ${vod.thumbnail ? `<img src="${escapeHtml(vod.thumbnail)}" alt="" loading="lazy" data-hide-on-error="true">` : ''}
                             ${vod.duration  ? `<span class="vod-result-duration">${formatDuration(vod.duration)}</span>` : ''}
                             <div class="vod-result-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M8 5v14l11-7z"/></svg></div>
                             ${pct > 0 ? `<div class="history-progress-bar"><div class="history-progress-fill" style="width:${pct}%"></div></div>` : ''}
@@ -2228,7 +2205,7 @@ document.addEventListener('DOMContentLoaded', () => {
         goBackHome();
         views.forEach(v => {
             const active = v.id === viewId;
-            v.style.display = active ? '' : 'none';
+            v.style.display = active ? 'block' : 'none';
             v.classList.toggle('active', active);
         });
         if (playerSection) playerSection.style.display = 'none';
@@ -2266,11 +2243,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     tBtn.classList.add('is-active');
                     if (tBtn.dataset.tab === 'kick-trending') {
                         gridTwitch.style.display = 'none';
-                        gridKick.style.display = '';
+                        gridKick.style.display = 'grid';
                         loadTrendingGrid(gridKick, 'kick');
                     } else {
                         gridKick.style.display = 'none';
-                        gridTwitch.style.display = '';
+                        gridTwitch.style.display = 'grid';
                         loadTrendingGrid(gridTwitch, 'twitch');
                     }
                 });
@@ -2278,9 +2255,9 @@ document.addEventListener('DOMContentLoaded', () => {
             section.dataset.tabsBound = 'true';
         }
 
-        if (_trendingLoaded && !force) { section.style.display = ''; return; }
+        if (_trendingLoaded && !force) { section.style.display = 'block'; return; }
         
-        section.style.display = '';
+        section.style.display = 'block';
         const activeTab = section.querySelector('.trending-tab.is-active')?.dataset.tab || 'kick-trending';
         loadTrendingGrid(activeTab === 'twitch-trending' ? gridTwitch : gridKick, activeTab === 'twitch-trending' ? 'twitch' : 'kick');
         
@@ -2304,7 +2281,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return `
                     <a href="#" class="recent-history-card" data-vod-url="${escapeHtml(item.url)}">
                         <div class="recent-history-thumb">
-                            <img src="${escapeHtml(item.thumbnail || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
+                            <img src="${escapeHtml(item.thumbnail || '')}" alt="" loading="lazy" data-hide-on-error="true">
                             <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
                             <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
                             <span class="platform-badge ${platform === 'twitch' ? 'twitch' : 'kick'}">${platform === 'twitch' ? 'Twitch' : 'Kick'}</span>
@@ -2315,7 +2292,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="recent-history-info">
                             <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
                             <div class="history-meta-row">
-                                ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+                                ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" data-hide-on-error="true">` : ''}
                                 <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                             </div>
                             ${item.views ? `<p class="history-date">${formatNumber(item.views)} ${t('views')}</p>` : ''}
@@ -2336,11 +2313,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 targetGrid.innerHTML = `
                     <div class="vods-status vods-error" style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                         <div>${t('trending_error', 'Service temporairement indisponible. Réessayez dans quelques instants.')}</div>
-                        <button class="btn-secondary" onclick="document.querySelector('.trending-tab.is-active')?.click()" style="padding:6px 12px; font-size:0.9rem;">
+                        <button class="btn-secondary js-retry-trending" style="padding:6px 12px; font-size:0.9rem;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right:6px;"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 2v6h6"/></svg>
                             ${t('retry', 'Réessayer')}
                         </button>
                     </div>`;
+                targetGrid.querySelector('.js-retry-trending')?.addEventListener('click', () => {
+                    document.querySelector('.trending-tab.is-active')?.click();
+                });
             }
         }
     }
@@ -2443,7 +2423,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return `
             <a href="#" class="recent-history-card" data-vod-url="${escapeHtml(item.url)}">
                 <div class="recent-history-thumb">
-                    <img src="${escapeHtml(thumb)}" alt="" loading="lazy" onerror="this.style.display='none'">
+                    <img src="${escapeHtml(thumb)}" alt="" loading="lazy" data-hide-on-error="true">
                     <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
                     <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
                     ${dur ? `<span class="history-duration-badge">${escapeHtml(dur)}</span>` : ''}
@@ -2459,7 +2439,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>
                     </div>
                     <div class="history-meta-row">
-                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" data-hide-on-error="true">` : ''}
                         <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                     </div>
                     <p class="history-date">${timeAgo(item.date || item.timestamp)}</p>
@@ -2505,7 +2485,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: true });
 
         wrapper.addEventListener('touchend', e => {
-            if (!playerSection || playerSection.style.display === 'none') return;
+            if (!isDisplayed(playerSection)) return;
             const dx = e.changedTouches[0].clientX - touchStartX;
             const dy = e.changedTouches[0].clientY - touchStartY;
             // Swipe horizontal uniquement si plus grand que vertical
@@ -2638,7 +2618,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Force refresh favorites grid if visible
                 const favView = document.getElementById('favorites-view');
-                if (favView && favView.style.display !== 'none') {
+                if (isDisplayed(favView)) {
                     renderFavorites();
                 }
             } catch (err) {
@@ -2675,7 +2655,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!badge) return;
         const count = getFavorites().length;
         badge.textContent = count;
-        badge.style.display = count > 0 ? '' : 'none';
+        badge.style.display = count > 0 ? 'inline-flex' : 'none';
     }
 
     function renderFavorites() {
@@ -2696,7 +2676,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return `
             <a href="#" class="recent-history-card" data-vod-url="${escapeHtml(item.url)}">
                 <div class="recent-history-thumb">
-                    <img src="${escapeHtml(item.thumbnail || item.avatar || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
+                    <img src="${escapeHtml(item.thumbnail || item.avatar || '')}" alt="" loading="lazy" data-hide-on-error="true">
                     <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
                     <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
                     ${dur ? `<span class="history-duration-badge">${escapeHtml(dur)}</span>` : ''}
@@ -2705,7 +2685,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="recent-history-info">
                     <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
                     <div class="history-meta-row">
-                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" data-hide-on-error="true">` : ''}
                         <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                     </div>
                     <p class="history-date">${timeAgo(item.addedAt)}</p>
@@ -2730,7 +2710,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-more-actions')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const menu = document.getElementById('more-actions-menu');
-        if (menu) menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+        if (menu) menu.style.display = isDisplayed(menu) ? 'none' : 'flex';
     });
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.dropdown-container')) {
@@ -3089,46 +3069,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
         reader.readAsText(file);
-    });
-
-    // ── Status Modal ───────────────────────────────────────
-    document.getElementById('api-status-link')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const modal = document.getElementById('status-modal');
-        const content = document.getElementById('status-content');
-        if (!modal || !content) return;
-        
-        modal.style.display = 'flex';
-        content.innerHTML = t('trending_loading', 'Chargement...');
-        
-        try {
-            const res = await fetch('/api/status');
-            const data = await res.json();
-            const statusPill = (ok) => `<span style="color:${ok ? '#00e676' : '#ff4444'}; font-weight:700;">${ok ? 'OK' : 'DOWN'}</span>`;
-            const row = (label, value) => `<div style="display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.08);"><strong>${escapeHtml(label)}</strong><span>${value}</span></div>`;
-            const services = data.services || {};
-            const playback = data.playback || {};
-            content.innerHTML = `
-                ${row('App', `<span style="color:${data.status === 'online' ? '#00e676' : '#f59e0b'}; font-weight:700;">${escapeHtml(String(data.status || 'unknown').toUpperCase())}</span>`)}
-                ${row('Version', escapeHtml(data.version || 'Unknown'))}
-                ${row('Kick', statusPill(!!services.kick))}
-                ${row('Twitch', statusPill(!!services.twitch))}
-                ${row('Chat', statusPill(!!services.chat))}
-                ${row('Proxy', statusPill(!!services.proxy))}
-                ${row('Téléchargements', statusPill(!!services.downloads))}
-                ${row('Cache', escapeHtml(String(data.cache_keys || 0)))}
-                ${row('Auto qualité', `${escapeHtml(String(playback.default_quality_height || 720))}p`)}
-                ${row('Proxy max', `${escapeHtml(String(playback.max_proxy_quality_height || 720))}p`)}
-                ${row('Direct Safari/iOS', playback.direct_twitch_native_hls ? 'ON' : 'OFF')}
-            `;
-        } catch {
-            content.innerHTML = `<span style="color:#ff4444;">Erreur de connexion au serveur.</span>`;
-        }
-    });
-
-    document.getElementById('btn-close-status-modal')?.addEventListener('click', () => {
-        const m = document.getElementById('status-modal');
-        if (m) m.style.display = 'none';
     });
 
     // Handle background clicks for modals

@@ -1,10 +1,11 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 import cloudscraper
 import os
 import re
 import time
 import threading
 import html as _html
+import secrets
 from urllib.parse import quote, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -86,6 +87,7 @@ except Exception:
 scraper = cloudscraper.create_scraper()
 
 _INDEX_PATH = os.path.join(app.static_folder, 'index.html')
+_INLINE_STYLE_RE = re.compile(r'(<[^>]+?)\sstyle="([^"]*)"([^>]*>)', re.IGNORECASE)
 
 # Rate limiting optionnel (protège les endpoints coûteux). Import facultatif :
 # l'app fonctionne même sans flask-limiter installé.
@@ -100,23 +102,75 @@ def maybe_limit(rule):
     """Applique une limite si flask-limiter est dispo, sinon décorateur transparent."""
     return limiter.limit(rule) if limiter else (lambda f: f)
 
-# Politique de sécurité du contenu. Les flux et images restent ouverts aux CDN vidéo,
-# mais les scripts sont limités à l'application et à hls.js pour éviter les redirections tierces.
-CSP = (
-    "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
-    "worker-src 'self' blob:; "  # hls.js crée son démuxeur dans un Web Worker (blob)
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "img-src 'self' data: blob: https:; "
-    "media-src 'self' blob: https:; "
-    "connect-src 'self' https:; "
-    "frame-src 'self'; "
-    "font-src 'self' data: https://fonts.gstatic.com; "
-    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
-)
+
+def _read_index_doc():
+    with open(_INDEX_PATH, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def _add_class_to_tag(tag, class_name):
+    if re.search(r'\sclass="', tag, flags=re.IGNORECASE):
+        return re.sub(
+            r'\sclass="([^"]*)"',
+            lambda m: f' class="{m.group(1)} {class_name}"',
+            tag,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    if tag.endswith('/>'):
+        return f'{tag[:-2]} class="{class_name}"/>'
+    if tag.endswith('>'):
+        return f'{tag[:-1]} class="{class_name}">'
+    return tag
+
+
+def _extract_inline_styles(doc, nonce):
+    rules = []
+
+    def repl(match):
+        before, style, after = match.groups()
+        class_name = f'kns-s{len(rules)}'
+        rules.append(f'.{class_name}{{{_html.unescape(style)}}}')
+        return _add_class_to_tag(before + after, class_name)
+
+    doc = _INLINE_STYLE_RE.sub(repl, doc)
+    if rules:
+        style_block = f'<style nonce="{nonce}" id="kns-inline-styles">\n' + '\n'.join(rules) + '\n</style>\n'
+        doc = doc.replace('</head>', style_block + '</head>', 1)
+    return doc
+
+
+def _prepare_html_response(doc, status=200):
+    nonce = getattr(g, 'csp_nonce', '')
+    doc = doc.replace('__CSP_NONCE__', nonce)
+    doc = _extract_inline_styles(doc, nonce)
+    return app.response_class(doc, status=status, mimetype='text/html')
+
+def build_csp(nonce):
+    return (
+        "default-src 'self'; "
+        f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+        "script-src-attr 'none'; "
+        f"style-src 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
+        f"style-src-elem 'self' 'nonce-{nonce}' https://fonts.googleapis.com; "
+        "style-src-attr 'none'; "
+        "worker-src 'self' blob:; "
+        "child-src 'self' blob:; "
+        "img-src 'self' data: blob: https:; "
+        "media-src 'self' blob: https:; "
+        "connect-src 'self' https:; "
+        "frame-src 'self'; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+    )
 
 # Extensions statiques que l'on peut mettre en cache long (elles changent rarement).
 _LONG_CACHE_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf')
+
+
+@app.before_request
+def set_csp_nonce():
+    g.csp_nonce = secrets.token_urlsafe(16)
 
 
 @app.after_request
@@ -127,7 +181,7 @@ def add_security_and_cache_headers(response):
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
     response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
-    response.headers.setdefault('Content-Security-Policy', CSP)
+    response.headers.setdefault('Content-Security-Policy', build_csp(getattr(g, 'csp_nonce', '')))
 
     # ── Cache : médias en cache long ; code (HTML/JS/CSS) revalidé pour éviter le stale ──
     path = request.path or ''
@@ -367,8 +421,7 @@ def _render_index_with_meta(vod_url):
     if not meta:
         return None
     try:
-        with open(_INDEX_PATH, 'r', encoding='utf-8') as f:
-            doc = f.read()
+        doc = _read_index_doc()
     except Exception:
         return None
     title = _html.escape(f"{meta['title']} — {meta['streamer']} | KickNoSub", quote=True)
@@ -398,8 +451,8 @@ def index():
     if vod:
         rendered = _render_index_with_meta(vod)
         if rendered:
-            return app.response_class(rendered, mimetype='text/html')
-    return send_from_directory('static', 'index.html')
+            return _prepare_html_response(rendered)
+    return _prepare_html_response(_read_index_doc())
 
 @app.route('/<path:path>')
 def serve_static(path):
@@ -860,16 +913,17 @@ threading.Thread(target=monitoring_loop, daemon=True).start()
 def admin_dashboard():
     # Simple basic auth or hidden page
     # Serves the admin.html template (we can just return an HTML string here to avoid template creation if we want to keep it simple, but let's serve admin.html if it exists)
-    return """
-    <html><head><title>Admin Dashboard</title><style>body{font-family:monospace; background:#111; color:#eee; padding:20px;}</style></head>
+    nonce = getattr(g, 'csp_nonce', '')
+    return f"""
+    <html><head><title>Admin Dashboard</title><style nonce="{nonce}">body{{font-family:monospace; background:#111; color:#eee; padding:20px;}}</style></head>
     <body>
         <h1>Admin Dashboard</h1>
         <h2>Monitoring Status</h2>
         <pre id="status"></pre>
-        <script>
-            fetch('/api/status').then(r=>r.json()).then(d => {
+        <script nonce="{nonce}">
+            fetch('/api/status').then(r=>r.json()).then(d => {{
                 document.getElementById('status').innerText = JSON.stringify(d, null, 2);
-            });
+            }});
         </script>
     </body></html>
     """, 200

@@ -6,6 +6,9 @@ def test_index_serves_html(client):
     r = client.get('/')
     assert r.status_code == 200
     assert b'KickNoSub' in r.data
+    assert b'__CSP_NONCE__' not in r.data
+    assert b'nonce="' in r.data
+    assert b'style="' not in r.data
 
 
 def test_security_headers_present(client):
@@ -14,6 +17,11 @@ def test_security_headers_present(client):
     assert r.headers.get('X-Frame-Options') == 'SAMEORIGIN'
     assert r.headers.get('Referrer-Policy') == 'strict-origin-when-cross-origin'
     csp = r.headers.get('Content-Security-Policy', '')
+    assert "'unsafe-inline'" not in csp
+    assert "'unsafe-eval'" not in csp
+    assert "'nonce-" in csp
+    assert "script-src-attr 'none'" in csp
+    assert "style-src-attr 'none'" in csp
     assert "object-src 'none'" in csp
     assert "frame-ancestors 'self'" in csp
 

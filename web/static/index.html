@@ -4,6 +4,7 @@
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta name="csrf-token" content="19bd44af-e1dd-43d7-835a-fcd44210429e" />
+	<meta name="csp-nonce" content="__CSP_NONCE__" />
 	
 <meta name="description" content="Regardez des VODs et clips Kick et Twitch sans abonnement. Entrez un lien et regardez instantanément, totalement gratuit !" />
 <meta name="keywords" content="Kick, Twitch, vod, clip, vidéo, sans abonnement, kicknosub, kick no sub, nosub, replay, rediffusion, streamer, streaming, stream" />
@@ -32,7 +33,7 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link rel="preconnect" href="https://files.kick.com" crossorigin />
     <link rel="dns-prefetch" href="https://stream.kick.com" />
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.14" defer></script>
+    <script nonce="__CSP_NONCE__" src="https://cdn.jsdelivr.net/npm/hls.js@1.4.14" defer></script>
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="manifest" href="/static/manifest.json" />
     <meta name="theme-color" content="#06060a" />
@@ -547,7 +548,11 @@
     </div>
 </div>
 
-<script src="/static/lang.js" defer></script>
-<script src="/static/main.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/js/runtime-errors.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/js/csp-style-bridge.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/js/media-fallbacks.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/lang.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/js/status-modal.js" defer></script>
+<script nonce="__CSP_NONCE__" src="/static/main.js" defer></script>
 </body>
 </html>
