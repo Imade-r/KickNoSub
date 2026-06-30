@@ -2563,7 +2563,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Bookmark ──
     document.getElementById('btn-bookmark')?.addEventListener('click', () => {
-        if (!hlsPlayer) return;
+        if (!video) return;
         document.getElementById('bookmark-modal').style.display = 'flex';
         document.getElementById('bookmark-title-input').focus();
     });
@@ -2571,9 +2571,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('bookmark-modal').style.display = 'none';
     });
     document.getElementById('btn-save-bookmark')?.addEventListener('click', () => {
-        if (!hlsPlayer || !currentVODMeta) return;
+        if (!video || !currentVODMeta) return;
         const title = document.getElementById('bookmark-title-input').value || 'Sans titre';
-        const t = Math.floor(hlsPlayer.currentTime());
+        const t = Math.floor(video.currentTime);
         const mark = {
             title: title,
             time: t,
@@ -2606,14 +2606,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     document.getElementById('btn-clip-set-start')?.addEventListener('click', () => {
-        if(hlsPlayer) {
-            document.getElementById('clip-start-input').value = formatTimeFFmpeg(hlsPlayer.currentTime());
+        if(video) {
+            document.getElementById('clip-start-input').value = formatTimeFFmpeg(video.currentTime);
             updateClipperCmd();
         }
     });
     document.getElementById('btn-clip-set-end')?.addEventListener('click', () => {
-        if(hlsPlayer) {
-            document.getElementById('clip-end-input').value = formatTimeFFmpeg(hlsPlayer.currentTime());
+        if(video) {
+            document.getElementById('clip-end-input').value = formatTimeFFmpeg(video.currentTime);
             updateClipperCmd();
         }
     });
