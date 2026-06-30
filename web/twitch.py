@@ -40,13 +40,26 @@ _badge_cache = {}    # channel_id -> (map setID->version->{url,title}, ts)
 ASSET_TTL = 3600     # 1 h (les emotes/badges changent rarement)
 
 
-def _fetch_json(url, scraper, timeout=8):
-    try:
-        r = scraper.get(url, timeout=timeout)
-        if r.ok:
-            return r.json()
-    except Exception:
-        pass
+import time
+
+def _fetch_json(url, scraper, timeout=8, max_retries=3):
+    retries = 0
+    backoff = 1
+    while retries <= max_retries:
+        try:
+            r = scraper.get(url, timeout=timeout)
+            if r.status_code == 429:
+                time.sleep(backoff)
+                retries += 1
+                backoff *= 2
+                continue
+            if r.ok:
+                return r.json()
+            return None
+        except Exception:
+            time.sleep(backoff)
+            retries += 1
+            backoff *= 2
     return None
 
 
@@ -206,25 +219,36 @@ def extract_clip_slug(url):
     return None
 
 
-def _gql_video(vod_id, scraper):
+def _gql_video(vod_id, scraper, max_retries=3):
     query = (
         'query { video(id: "%s") { broadcastType, createdAt, lengthSeconds, '
         'title, previewThumbnailURL(width: 1280, height: 720), seekPreviewsURL, '
         'viewCount, owner { id, login, displayName, profileImageURL(width: 70) } } }'
         % vod_id
     )
-    try:
-        res = scraper.post(
-            GQL_URL,
-            json={"query": query},
-            headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"},
-            timeout=10,
-        )
-        if res.status_code != 200:
-            return None
-        return (res.json() or {}).get("data", {}).get("video")
-    except Exception:
-        return None
+    retries = 0
+    backoff = 1
+    while retries <= max_retries:
+        try:
+            res = scraper.post(
+                GQL_URL,
+                json={"query": query},
+                headers={"Client-Id": GQL_CLIENT_ID, "Content-Type": "application/json"},
+                timeout=10,
+            )
+            if res.status_code == 429:
+                time.sleep(backoff)
+                retries += 1
+                backoff *= 2
+                continue
+            if res.status_code != 200:
+                return None
+            return (res.json() or {}).get("data", {}).get("video")
+        except Exception:
+            time.sleep(backoff)
+            retries += 1
+            backoff *= 2
+    return None
 
 
 def _candidate_url(domain, special_id, vod_id, login, broadcast_type, days_old, quality):

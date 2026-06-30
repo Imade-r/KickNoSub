@@ -1,0 +1,11 @@
+{
+    "features": {
+        "enable_twitch": true,
+        "enable_kick": true,
+        "enable_downloads": true,
+        "enable_chat": true
+    },
+    "monitoring": {
+        "check_interval_seconds": 600
+    }
+}

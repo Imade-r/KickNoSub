@@ -2,11 +2,7 @@
 // KickNoSub - Main Application Logic
 // ========================================
 
-// 💰 MONÉTISATION - SCRIPTS PUBLICITAIRES 💰
-// --> Si vous utilisez une régie comme Adsterra, Monetag ou Clickadu
-// --> Collez leurs scripts (Popunders, Social Bar, Push) juste en dessous de ce commentaire :
 
-// ========================================
 document.addEventListener('DOMContentLoaded', () => {
 
     // ── DOM References ──────────────────────
@@ -362,11 +358,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el) el.remove();
     }
 
+    function preloadVOD(url) {
+        if (!url) return;
+        let apiUrl = '';
+        if (url.includes('kick.com/')) apiUrl = `/api/kick/stream?url=${encodeURIComponent(url)}`;
+        else if (url.includes('twitch.tv/')) {
+            const m = url.match(/videos\/(\d+)/);
+            if (m) apiUrl = `/api/twitch/resolve?vod_id=${m[1]}`;
+        }
+        if (apiUrl) fetch(apiUrl).catch(() => {}); // fetch silently and cache by browser
+    }
+
     function renderRelatedVods(currentUrl) {
         clearRelatedVods();
         if (!_lastStreamerVods.length || !_lastStreamerInfo) return;
         const others = _lastStreamerVods.filter(v => v.url !== currentUrl);
         if (!others.length) return;
+
+        preloadVOD(others[0].url); // Préchargement intelligent du stream suivant
 
         const section = document.createElement('div');
         section.id = 'related-vods-section';
@@ -529,8 +538,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     populateQualityLevels();
                     
+                    const timecodeParam = new URLSearchParams(window.location.search).get('t');
                     const saved = getSavedProgress(currentVODUrl);
-                    if (saved > 30) {
+                    
+                    if (timecodeParam) {
+                        video.currentTime = parseInt(timecodeParam, 10) || 0;
+                        video.play().catch(() => {});
+                    } else if (saved > 30) {
                         video.currentTime = saved;
                         showResumePrompt(saved);
                     } else {
@@ -553,8 +567,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 video.src = m3u8Url;
                 video.addEventListener('loadedmetadata', () => {
                     
+                    const timecodeParam = new URLSearchParams(window.location.search).get('t');
                     const saved = getSavedProgress(currentVODUrl);
-                    if (saved > 30) {
+                    
+                    if (timecodeParam) {
+                        video.currentTime = parseInt(timecodeParam, 10) || 0;
+                        video.play().catch(() => {});
+                    } else if (saved > 30) {
                         video.currentTime = saved;
                         showResumePrompt(saved);
                     } else {
@@ -1011,14 +1030,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="player-controls-row">
                     <div class="player-controls-left">
-                        <button class="player-ctrl-btn" id="play-pause-btn" title="Lecture / Pause (Espace)">
+                        <button class="player-ctrl-btn" id="play-pause-btn" title="Lecture / Pause (Espace)" aria-label="Lecture ou Pause">
                             <span class="pi-play">${SVG.play}</span>
                             <span class="pi-pause" style="display:none">${SVG.pause}</span>
                         </button>
-                        <button class="player-ctrl-btn" id="skip-back-btn" title="-10s (←)">${SVG.skipB}</button>
-                        <button class="player-ctrl-btn" id="skip-fwd-btn"  title="+10s (→)">${SVG.skipF}</button>
+                        <button class="player-ctrl-btn" id="skip-back-btn" title="-10s (←)" aria-label="Reculer de 10 secondes">${SVG.skipB}</button>
+                        <button class="player-ctrl-btn" id="skip-fwd-btn"  title="+10s (→)" aria-label="Avancer de 10 secondes">${SVG.skipF}</button>
                         <div class="player-volume-group">
-                            <button class="player-ctrl-btn" id="mute-btn" title="Muet (M)">
+                            <button class="player-ctrl-btn" id="mute-btn" title="Muet (M)" aria-label="Couper ou activer le son">
                                 <span class="pi-vol">${SVG.volOn}</span>
                                 <span class="pi-mute" style="display:none">${SVG.volOff}</span>
                             </button>
@@ -1033,10 +1052,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                     <div class="player-controls-right">
-                        <button class="player-ctrl-btn" id="download-btn" title="Télécharger la vidéo">${SVG.download}</button>
-                        <button class="player-ctrl-btn" id="chat-overlay-btn" title="Activer/Désactiver le chat en surimpression" style="display:none;">${SVG.chatOverlay}</button>
-                        <button class="player-ctrl-btn" id="pip-btn" title="Picture-in-Picture (P)">${SVG.pip}</button>
-                        <button class="player-ctrl-btn" id="theater-btn" title="Mode cinéma (T)">${SVG.theater}</button>
+                        <button class="player-ctrl-btn" id="download-btn" title="Télécharger la vidéo" aria-label="Télécharger">${SVG.download}</button>
+                        <button class="player-ctrl-btn" id="chat-overlay-btn" title="Activer/Désactiver le chat en surimpression" aria-label="Chat en surimpression" style="display:none;">${SVG.chatOverlay}</button>
+                        <button class="player-ctrl-btn" id="pip-btn" title="Picture-in-Picture (P)" aria-label="Mode PIP">${SVG.pip}</button>
+                        <button class="player-ctrl-btn" id="theater-btn" title="Mode cinéma (T)" aria-label="Mode cinéma">${SVG.theater}</button>
                         <div class="player-speed-wrap">
                             <button class="player-ctrl-btn player-speed-btn" id="speed-btn" title="Vitesse de lecture (V)">
                                 <span id="speed-label">1×</span>
@@ -2002,7 +2021,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async function loadTrendingGrid(targetGrid, platform) {
             if (targetGrid.children.length > 0 && targetGrid.querySelector('.vod-result-card, .recent-history-card') && !force) return;
             
-            targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('trending_loading', 'Chargement...')}</div>`;
+            targetGrid.innerHTML = Array(6).fill('<div style="display:flex; flex-direction:column; gap:8px;"><div class="skeleton-card"></div><div class="skeleton-text"></div><div class="skeleton-text" style="width:50%;"></div></div>').join('');
             try {
                 const lang = window.currentLang || 'en';
                 const res  = await fetch(`/api/trending?platform=${platform}&lang=${lang}`);
@@ -2048,7 +2067,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 _trendingLoaded = true;
             } catch (e) {
                 console.error(e);
-                targetGrid.innerHTML = `<div class="vods-status vods-error">${t('trending_error', 'Service temporairement indisponible. Réessayez dans quelques instants.')}</div>`;
+                targetGrid.innerHTML = `
+                    <div class="vods-status vods-error" style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+                        <div>${t('trending_error', 'Service temporairement indisponible. Réessayez dans quelques instants.')}</div>
+                        <button class="btn-secondary" onclick="document.querySelector('.trending-tab.is-active')?.click()" style="padding:6px 12px; font-size:0.9rem;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="margin-right:6px;"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 2v6h6"/></svg>
+                            ${t('retry', 'Réessayer')}
+                        </button>
+                    </div>`;
             }
         }
     }
@@ -2160,7 +2186,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${getMiniFavBtn(item)}
                 </div>
                 <div class="recent-history-info">
-                    <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                        <h3 class="recent-history-title" style="margin:0;">${escapeHtml(item.title)}</h3>
+                        <button class="btn-delete-history" style="background:transparent; border:none; color:#ff4444; cursor:pointer; padding:4px;" title="Supprimer de l'historique" aria-label="Supprimer">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                    </div>
                     <div class="history-meta-row">
                         ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
                         <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
@@ -2173,6 +2204,16 @@ document.addEventListener('DOMContentLoaded', () => {
         grid.querySelectorAll('.recent-history-card').forEach(card => {
             card.addEventListener('click', e => { 
                 if (e.target.closest('.mini-fav-btn')) return;
+                if (e.target.closest('.btn-delete-history')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const url = card.getAttribute('data-vod-url');
+                    let hist = JSON.parse(localStorage.getItem('kicknosub_history') || '[]');
+                    hist = hist.filter(i => i.url !== url);
+                    localStorage.setItem('kicknosub_history', JSON.stringify(hist));
+                    renderHistory();
+                    return;
+                }
                 e.preventDefault(); 
                 playVOD(card.getAttribute('data-vod-url')); 
             });
@@ -2420,6 +2461,105 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVODMeta) toggleFavorite(currentVODMeta);
     });
 
+    document.getElementById('btn-download')?.addEventListener('click', () => {
+        if (!window.currentM3U8Url) {
+            showToast('error', 'Erreur', t('download_not_ready'), 3000);
+            return;
+        }
+        // URL de téléchargement : préfère l'URL brute CloudFront (Twitch) si dispo
+        const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
+        document.getElementById('download-m3u8-input').value = dlUrl;
+        
+        // Générer le nom de fichier par défaut (ex: xqc_vod_123.mp4)
+        const streamer = currentVODMeta?.streamer || 'streamer';
+        const dateStr = currentVODMeta?.date ? new Date(currentVODMeta.date).toISOString().split('T')[0] : 'vod';
+        const defaultFilename = `${streamer}_${dateStr}.mp4`;
+        
+        // Commande FFmpeg
+        const ffmpegCmd = `ffmpeg -i "${dlUrl}" -c copy -bsf:a aac_adtstoasc "${defaultFilename}"`;
+        document.getElementById('download-ffmpeg-input').value = ffmpegCmd;
+        
+        document.getElementById('download-modal').style.display = 'flex';
+    });
+
+    // ── Bookmark ──
+    document.getElementById('btn-bookmark')?.addEventListener('click', () => {
+        if (!hlsPlayer) return;
+        document.getElementById('bookmark-modal').style.display = 'flex';
+        document.getElementById('bookmark-title-input').focus();
+    });
+    document.getElementById('btn-close-bookmark-modal')?.addEventListener('click', () => {
+        document.getElementById('bookmark-modal').style.display = 'none';
+    });
+    document.getElementById('btn-save-bookmark')?.addEventListener('click', () => {
+        if (!hlsPlayer || !currentVODMeta) return;
+        const title = document.getElementById('bookmark-title-input').value || 'Sans titre';
+        const t = Math.floor(hlsPlayer.currentTime());
+        const mark = {
+            title: title,
+            time: t,
+            url: currentVODMeta.url,
+            vodTitle: currentVODMeta.title
+        };
+        let marks = JSON.parse(localStorage.getItem('kicknosub_bookmarks') || '[]');
+        marks.push(mark);
+        localStorage.setItem('kicknosub_bookmarks', JSON.stringify(marks));
+        showToast('success', 'Marqueur ajouté', `Extrait sauvegardé à ${formatDuration(t*1000)}`, 3000);
+        document.getElementById('bookmark-modal').style.display = 'none';
+    });
+
+    // ── Clipper ──
+    document.getElementById('btn-clipper')?.addEventListener('click', () => {
+        if (!window.currentM3U8Url) return;
+        document.getElementById('clipper-modal').style.display = 'flex';
+        updateClipperCmd();
+    });
+    document.getElementById('btn-close-clipper-modal')?.addEventListener('click', () => {
+        document.getElementById('clipper-modal').style.display = 'none';
+    });
+
+    function formatTimeFFmpeg(sec) {
+        sec = Math.floor(sec);
+        const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+        const s = (sec % 60).toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
+    document.getElementById('btn-clip-set-start')?.addEventListener('click', () => {
+        if(hlsPlayer) {
+            document.getElementById('clip-start-input').value = formatTimeFFmpeg(hlsPlayer.currentTime());
+            updateClipperCmd();
+        }
+    });
+    document.getElementById('btn-clip-set-end')?.addEventListener('click', () => {
+        if(hlsPlayer) {
+            document.getElementById('clip-end-input').value = formatTimeFFmpeg(hlsPlayer.currentTime());
+            updateClipperCmd();
+        }
+    });
+    ['clip-start-input', 'clip-end-input'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateClipperCmd);
+    });
+
+    function updateClipperCmd() {
+        const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
+        const st = document.getElementById('clip-start-input').value || '00:00:00';
+        const ed = document.getElementById('clip-end-input').value || '00:00:10';
+        const cmd = `ffmpeg -ss ${st} -to ${ed} -i "${dlUrl}" -c copy "clip.mp4"`;
+        document.getElementById('clipper-cmd-input').value = cmd;
+    }
+    document.getElementById('btn-copy-clipper-cmd')?.addEventListener('click', () => {
+        const i = document.getElementById('clipper-cmd-input');
+        navigator.clipboard.writeText(i.value).then(() => {
+            showToast('success', 'Commande copiée', 'Collez-la dans votre terminal', 3000);
+        });
+    });
+
+    document.getElementById('btn-close-download-modal')?.addEventListener('click', () => {
+        document.getElementById('download-modal').style.display = 'none';
+    });
+
     document.getElementById('btn-copy-link')?.addEventListener('click', () => {
         const shareUrl = `${location.origin}${location.pathname}?vod=${encodeURIComponent(currentVODUrl || '')}`;
         navigator.clipboard.writeText(shareUrl).then(() => {
@@ -2427,6 +2567,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(() => {
             showToast('error', 'Erreur', 'Impossible de copier dans le presse-papier.', 3000);
         });
+    });
+
+    document.getElementById('btn-copy-timecode')?.addEventListener('click', () => {
+        if (!video || !currentVODUrl) return;
+        const t = Math.floor(video.currentTime);
+        const shareUrl = `${location.origin}${location.pathname}?vod=${encodeURIComponent(currentVODUrl)}&t=${t}`;
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            showToast('success', 'Timecode copié !', shareUrl, 3000);
+        }).catch(() => {});
+    });
+
+    document.getElementById('btn-report-bug')?.addEventListener('click', () => {
+        const platform = currentVODMeta?.is_twitch ? 'Twitch' : 'Kick';
+        const body = encodeURIComponent(`Bonjour,\n\nJe rencontre un problème avec cette VOD :\nURL: ${currentVODUrl}\nPlateforme: ${platform}\nNavigateur: ${navigator.userAgent}\n\nDescription du problème : `);
+        window.location.href = `mailto:admin@kicknosub.com?subject=Bug Report - KickNoSub&body=${body}`;
     });
 
     document.getElementById('btn-share')?.addEventListener('click', () => {
@@ -2600,7 +2755,94 @@ document.addEventListener('DOMContentLoaded', () => {
     showView('home-view');
     if (window.setLanguage) window.setLanguage('fr');
 
-    // ── Export/Import Data ──────────────────────────────
+    // ── Export/Import Favorites ──────────────────────────────
+    document.getElementById('btn-export-favs')?.addEventListener('click', () => {
+        const favs = localStorage.getItem('ksn_favorites') || '[]';
+        const blob = new Blob([favs], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'kicknosub_favorites.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btn-close-status-modal')?.addEventListener('click', () => {
+        document.getElementById('status-modal').style.display = 'none';
+    });
+
+    // --- Modal Legal ---
+    document.getElementById('btn-open-legal')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('legal-modal').style.display = 'flex';
+    });
+    document.getElementById('btn-close-legal-modal')?.addEventListener('click', () => {
+        document.getElementById('legal-modal').style.display = 'none';
+    });
+
+    document.getElementById('btn-import-favs')?.addEventListener('click', () => {
+        document.getElementById('import-favs-file')?.click();
+    });
+
+    document.getElementById('import-favs-file')?.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            try {
+                const json = JSON.parse(evt.target.result);
+                if (Array.isArray(json)) {
+                    localStorage.setItem('ksn_favorites', JSON.stringify(json));
+                    showToast('success', 'Import réussi', 'Vos favoris ont été restaurés.', 3000);
+                    if (window.renderFavorites) window.renderFavorites();
+                } else {
+                    showToast('error', 'Erreur', 'Fichier JSON invalide.', 3000);
+                }
+            } catch (err) {
+                showToast('error', 'Erreur', 'Impossible de lire le fichier.', 3000);
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    // ── Status Modal ───────────────────────────────────────
+    document.getElementById('api-status-link')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const modal = document.getElementById('status-modal');
+        const content = document.getElementById('status-content');
+        if (!modal || !content) return;
+        
+        modal.style.display = 'flex';
+        content.innerHTML = t('trending_loading', 'Chargement...');
+        
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            content.innerHTML = `
+                <div style="margin-bottom:10px;"><strong>App Status:</strong> <span style="color:${data.status === 'online' ? '#00e676' : '#ff4444'}">${data.status.toUpperCase()}</span></div>
+                <div style="margin-bottom:10px;"><strong>Version:</strong> ${data.version || 'Unknown'}</div>
+                <div style="margin-bottom:10px;"><strong>Kick API:</strong> <span style="color:${data.services?.kick ? '#00e676' : '#ff4444'}">${data.services?.kick ? 'OK' : 'DOWN'}</span></div>
+                <div style="margin-bottom:10px;"><strong>Twitch API:</strong> <span style="color:${data.services?.twitch ? '#00e676' : '#ff4444'}">${data.services?.twitch ? 'OK' : 'DOWN'}</span></div>
+                <div style="margin-bottom:10px;"><strong>Cache Entries:</strong> ${data.cache_keys || 0}</div>
+            `;
+        } catch (err) {
+            content.innerHTML = `<span style="color:#ff4444;">Erreur de connexion au serveur.</span>`;
+        }
+    });
+
+    document.getElementById('btn-close-status-modal')?.addEventListener('click', () => {
+        const m = document.getElementById('status-modal');
+        if (m) m.style.display = 'none';
+    });
+
+    // Handle background clicks for modals
+    document.querySelectorAll('.modal-overlay').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.style.display = 'none';
+        });
+    });
+
+    // Dummy data replacement block
     document.getElementById('btn-export-data')?.addEventListener('click', () => {
         const data = {
             ksn_history: localStorage.getItem('ksn_history'),

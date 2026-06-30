@@ -6706,3 +6706,14 @@ body.split-view-active .vod-chat-sidebar { height: 50% !important; flex: 0 0 50%
 .platform-badge.twitch {
     background-color: #9146FF;
 }
+
+/* Accessibility Improvements */
+:focus-visible { outline: 2px solid var(--accent-primary) !important; outline-offset: 2px; border-radius: 4px; }
+.player-ctrl-btn:focus-visible { outline-color: #fff !important; }
+
+
+/* Skeleton Loader */
+@keyframes shimmer { 0% { background-position: -1000px 0; } 100% { background-position: 1000px 0; } }
+.skeleton-card { background: #1a1a24; background-image: linear-gradient(to right, #1a1a24 0%, #2a2a35 20%, #1a1a24 40%, #1a1a24 100%); background-repeat: no-repeat; background-size: 1000px 100%; display: inline-block; position: relative; animation: shimmer 2s infinite linear; border-radius: var(--radius); width: 100%; aspect-ratio: 16/9; }
+.skeleton-text { height: 16px; margin-top: 10px; border-radius: 4px; width: 80%; }
+

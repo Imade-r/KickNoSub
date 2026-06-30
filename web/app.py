@@ -11,11 +11,20 @@ from datetime import datetime, timedelta
 import logging
 
 import twitch
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static')
+
+def get_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {"features": {"enable_twitch": True, "enable_kick": True, "enable_downloads": True, "enable_chat": True}, "monitoring": {"check_interval_seconds": 600}}
 
 # Limite la taille des corps de requête (anti-abus / déni de service).
 app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 Ko
@@ -99,6 +108,28 @@ _twitch_cache = {}
 _twitch_lock = threading.Lock()
 TWITCH_CACHE_TTL = 1800  # 30 minutes
 
+def _fetch_with_backoff(url, method='GET', max_retries=3, **kwargs):
+    retries = 0
+    backoff = 1
+    while retries <= max_retries:
+        try:
+            res = scraper.request(method, url, timeout=10, **kwargs)
+            if res.status_code == 429:
+                logger.warning(f"Rate limited (429) on {url}. Waiting {backoff}s...")
+                time.sleep(backoff)
+                retries += 1
+                backoff *= 2
+                continue
+            return res
+        except Exception as e:
+            if retries == max_retries:
+                logger.error(f"Error fetching {url}: {e}")
+                return None
+            time.sleep(backoff)
+            retries += 1
+            backoff *= 2
+    return None
+
 def get_kick_channel_info(channel_slug):
     now = time.time()
     with _cache_lock:
@@ -107,15 +138,12 @@ def get_kick_channel_info(channel_slug):
             return cached[0]
 
     url = f"https://kick.com/api/v1/channels/{channel_slug}"
-    try:
-        res = scraper.get(url, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            with _cache_lock:
-                _channel_cache[channel_slug] = (data, now)
-            return data
-    except Exception as e:
-        print(f"Error fetching channel info: {e}")
+    res = _fetch_with_backoff(url)
+    if res and res.status_code == 200:
+        data = res.json()
+        with _cache_lock:
+            _channel_cache[channel_slug] = (data, now)
+        return data
     return None
 
 def _check_stream_url(url):
@@ -615,6 +643,12 @@ def get_trending():
     platform = request.args.get('platform', 'kick').lower()
     lang = request.args.get('lang', 'en').lower()
     
+    config = get_config()
+    if platform == 'kick' and not config.get('features', {}).get('enable_kick', True):
+        return jsonify({"error": "Kick is currently disabled."}), 503
+    if platform == 'twitch' and not config.get('features', {}).get('enable_twitch', True):
+        return jsonify({"error": "Twitch is currently disabled."}), 503
+    
     cache_key = f"{platform}_{lang}"
     if cache_key in TRENDING_CACHE:
         data, timestamp = TRENDING_CACHE[cache_key]
@@ -678,6 +712,83 @@ def get_trending():
     except Exception as e:
         logger.error(f"[API] Error in get_trending: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    try:
+        # Quick check if twitch module has GQL Client
+        twitch_ok = hasattr(twitch, 'GQL_CLIENT_ID')
+        # Quick check if kick channel endpoint is reachable
+        # We just assume True if scraper exists for now
+        kick_ok = scraper is not None
+        
+        return jsonify({
+            "status": "online",
+            "version": "1.3.0",
+            "services": {
+                "kick": kick_ok,
+                "twitch": twitch_ok,
+            },
+            "cache_keys": len(TRENDING_CACHE)
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "degraded", "error": str(e)}), 500
+@app.route('/api/config', methods=['GET'])
+def get_config_route():
+    try:
+        config = get_config()
+        return jsonify(config), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ── Auto-Monitoring & Admin ──
+monitor_status = {"last_check": None, "kick_ok": False, "twitch_ok": False, "history": []}
+
+def monitoring_loop():
+    while True:
+        try:
+            config = get_config()
+            interval = config.get("monitoring", {}).get("check_interval_seconds", 600)
+            
+            # Simple check
+            kick_ok = _fetch_with_backoff("https://kick.com/api/v1/channels/xqc") is not None
+            twitch_ok = hasattr(twitch, 'GQL_CLIENT_ID')
+            
+            with _cache_lock:
+                monitor_status["kick_ok"] = kick_ok
+                monitor_status["twitch_ok"] = twitch_ok
+                monitor_status["last_check"] = datetime.now().isoformat()
+                monitor_status["history"].append({
+                    "time": monitor_status["last_check"],
+                    "kick": kick_ok,
+                    "twitch": twitch_ok
+                })
+                if len(monitor_status["history"]) > 50:
+                    monitor_status["history"].pop(0)
+            
+            time.sleep(interval)
+        except Exception as e:
+            logger.error(f"Monitoring error: {e}")
+            time.sleep(60)
+
+threading.Thread(target=monitoring_loop, daemon=True).start()
+
+@app.route('/admin', methods=['GET'])
+def admin_dashboard():
+    # Simple basic auth or hidden page
+    # Serves the admin.html template (we can just return an HTML string here to avoid template creation if we want to keep it simple, but let's serve admin.html if it exists)
+    return """
+    <html><head><title>Admin Dashboard</title><style>body{font-family:monospace; background:#111; color:#eee; padding:20px;}</style></head>
+    <body>
+        <h1>Admin Dashboard</h1>
+        <h2>Monitoring Status</h2>
+        <pre id="status"></pre>
+        <script>
+            fetch('/api/status').then(r=>r.json()).then(d => {
+                document.getElementById('status').innerText = JSON.stringify(d, null, 2);
+            });
+        </script>
+    </body></html>
+    """, 200
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000)
