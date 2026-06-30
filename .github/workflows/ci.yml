@@ -26,7 +26,24 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r web/requirements-dev.txt
-      # Tests rapides et déterministes (le test navigateur exige un serveur +
-      # un navigateur + le réseau Kick/Twitch ; il est exclu de la CI).
+      # Tests rapides et déterministes (sans navigateur ni réseau).
       - run: python -m pytest tests/test_api.py tests/test_security.py -q
         working-directory: web
+
+  e2e:
+    name: Test navigateur (Playwright, mocké)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r web/requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
+      # Test déterministe : toutes les routes API sont mockées, la fixture
+      # démarre le serveur. Attrape la classe de bugs « présent mais cassé »
+      # (downloadModal, hlsPlayer, CSP worker, preloadVOD…) à chaque push.
+      - run: python -m pytest tests/test_browser.py::test_player_actions_with_mocked_vod -q
+        working-directory: web
+        env:
+          KNS_BASE_URL: "http://127.0.0.1:5000"

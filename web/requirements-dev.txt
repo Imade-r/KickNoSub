@@ -1,3 +1,6 @@
 # Dépendances de développement uniquement (non installées en production).
 -r requirements.txt
 pytest==8.0.0
+# Tests navigateur (e2e) — Playwright
+pytest-playwright==0.8.0
+playwright==1.61.0

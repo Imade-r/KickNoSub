@@ -853,7 +853,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function tryStartChat() {
-        if (window._chatStarted || !isChatPlaybackModeActive()) return;
+        if (window._chatStarted) return;
+        if (!isChatPlaybackModeActive()) {
+            // Le chat n'est chargé qu'en mode chat (split-view desktop / overlay
+            // mobile) pour économiser la bande passante. Sur desktop le panneau
+            // est visible : on invite à l'activer plutôt que de le laisser vide.
+            if (chatList && !chatList.querySelector('.chat-message')) {
+                chatList.innerHTML =
+                    `<div class="chat-status chat-enable-hint" role="button" tabindex="0">` +
+                    `${t('chat_enable_hint', 'Cliquez pour charger le chat ▶')}</div>`;
+                chatList.querySelector('.chat-enable-hint')
+                    ?.addEventListener('click', () => document.getElementById('btn-split-view')?.click());
+            }
+            return;
+        }
         window._chatStarted = true;
         chatActiveSession++;
         if (window.currentPlatform === 'twitch' && currentTwitchVodId) {

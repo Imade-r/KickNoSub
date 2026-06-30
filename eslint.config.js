@@ -19,7 +19,7 @@ module.exports = [
     },
     rules: {
       "no-undef": "error",
-      "no-unused-vars": ["warn", {
+      "no-unused-vars": ["error", {
         "argsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_"
       }],
