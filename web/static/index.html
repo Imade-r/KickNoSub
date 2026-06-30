@@ -344,6 +344,10 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                                     <span data-i18n="btn_share">Partager</span>
                                 </button>
+                                <button id="btn-copy-timecode" class="dropdown-item" title="Copier avec timecode">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    <span data-i18n="btn_copy_timecode">Timecode</span>
+                                </button>
                             </div>
                         </div>
                         <button id="btn-shortcuts" class="player-action-btn" title="Raccourcis clavier" style="margin-left: auto;">
@@ -529,12 +533,12 @@
 </div>
 
 <div id="status-modal" class="modal-overlay" style="display:none;">
-    <div class="modal-content" style="max-width: 400px;">
+    <div class="modal-content" style="max-width: 480px;">
         <h2 style="margin-top:0; display:flex; align-items:center; gap:8px;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span data-i18n="status_title">Statut des serveurs</span>
         </h2>
-        <div id="status-content" style="margin:20px 0; font-family:monospace; font-size:0.9rem;">
+        <div id="status-content" style="margin:20px 0; font-size:0.9rem;">
             Chargement...
         </div>
         <div style="display:flex; justify-content:flex-end;">

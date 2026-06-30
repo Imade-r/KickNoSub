@@ -51,8 +51,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let playerCleanup     = null;
     let currentVODUrl     = null;
     let currentVODMeta    = null;   // { title, streamer, thumbnail, duration, url }
+    let currentTwitchVodId = null;
     let lastProgressSave  = 0;
     let autoNextTimer     = null;   // timer du compte à rebours auto-next
+    let appConfig = {
+        playback: {
+            default_quality_height: 720,
+            max_proxy_quality_height: 720,
+            direct_twitch_native_hls: true,
+        }
+    };
 
     // Cache streamer VODs (slug → { data, ts }), TTL 5 min
     const _streamerCache = new Map();
@@ -68,6 +76,37 @@ document.addEventListener('DOMContentLoaded', () => {
     function setCachedStreamer(slug, data) {
         _streamerCache.set(slug, { data, ts: Date.now() });
     }
+
+    async function loadAppConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return;
+            const config = await res.json();
+            appConfig = {
+                ...appConfig,
+                ...config,
+                playback: { ...appConfig.playback, ...(config.playback || {}) }
+            };
+        } catch {
+            // Defaults are enough if config cannot be fetched.
+        }
+    }
+
+    function playbackSetting(key, fallback) {
+        return appConfig.playback?.[key] ?? fallback;
+    }
+
+    function shouldUseDirectTwitchPlayback(data) {
+        if (!data?.is_twitch || !data.direct_stream_url) return false;
+        if (playbackSetting('direct_twitch_native_hls', true) === false) return false;
+        const nativeHls = !!video?.canPlayType?.('application/vnd.apple.mpegurl');
+        const hlsJsSupported = typeof Hls !== 'undefined' && Hls.isSupported?.();
+        return nativeHls && !hlsJsSupported;
+    }
+
+    // Charge la config serveur (feature flags + réglages playback) dès l'init,
+    // pour que config.json soit respecté plutôt que les seuls fallbacks.
+    loadAppConfig();
 
     // Debounce helper
     function debounce(fn, delay) {
@@ -101,6 +140,108 @@ document.addEventListener('DOMContentLoaded', () => {
         const s = Math.floor(secs % 60);
         if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function currentLocale() {
+        return window.getCurrentLocale ? window.getCurrentLocale() : 'fr-FR';
+    }
+
+    function formatNumber(value) {
+        return Number(value || 0).toLocaleString(currentLocale());
+    }
+
+    function formatDate(value, options = { day: 'numeric', month: 'short', year: 'numeric' }) {
+        if (!value) return '';
+        const raw = String(value);
+        const date = new Date(raw.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? '' : 'Z'));
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleDateString(currentLocale(), options);
+    }
+
+    async function copyText(text, sourceElement = null) {
+        const value = String(text ?? '');
+        let lastError = null;
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(value);
+                return true;
+            } catch (err) {
+                lastError = err;
+            }
+        }
+
+        const textarea = sourceElement || document.createElement('textarea');
+        const isTemporary = !sourceElement;
+
+        if (isTemporary) {
+            textarea.value = value;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.top = '-9999px';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+        }
+
+        textarea.focus({ preventScroll: true });
+        textarea.select();
+        textarea.setSelectionRange?.(0, textarea.value.length);
+
+        try {
+            if (document.execCommand?.('copy')) return true;
+        } catch (err) {
+            lastError = err;
+        } finally {
+            if (isTemporary) textarea.remove();
+        }
+
+        throw lastError || new Error('copy failed');
+    }
+
+    function showManualCopyFallback(text) {
+        const value = String(text ?? '');
+        let modal = document.getElementById('copy-fallback-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'copy-fallback-modal';
+            modal.className = 'modal-overlay';
+            modal.style.display = 'none';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:520px;">
+                    <h3 style="margin-top:0; color:var(--text-primary);">${escapeHtml(t('manual_copy_title', 'Copie manuelle'))}</h3>
+                    <p style="color:var(--text-secondary); margin-bottom:14px;">${escapeHtml(t('manual_copy_message', 'Le navigateur a bloqué la copie automatique. Le texte est sélectionné ci-dessous.'))}</p>
+                    <input id="copy-fallback-input" type="text" readonly style="width:100%; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; padding:10px 12px; border-radius:6px;">
+                    <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+                        <button id="btn-close-copy-fallback" class="player-action-btn" style="background:rgba(255,255,255,0.1);">${escapeHtml(t('close', 'Fermer'))}</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal || event.target.closest('#btn-close-copy-fallback')) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+
+        const input = modal.querySelector('#copy-fallback-input');
+        input.value = value;
+        modal.style.display = 'flex';
+        requestAnimationFrame(() => {
+            input.focus({ preventScroll: true });
+            input.select();
+            input.setSelectionRange?.(0, input.value.length);
+        });
+    }
+
+    function handleCopyFailure(text, sourceElement = null) {
+        if (sourceElement) {
+            sourceElement.focus({ preventScroll: true });
+            sourceElement.select();
+            sourceElement.setSelectionRange?.(0, sourceElement.value.length);
+            showToast('warning', t('manual_copy_title', 'Copie manuelle'), t('manual_copy_message', 'Le navigateur a bloqué la copie automatique. Le texte est sélectionné ci-dessous.'), 5000);
+            return;
+        }
+        showManualCopyFallback(text);
     }
 
     // ── Badges chat Kick ────────────────────
@@ -332,11 +473,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!res.ok) throw new Error(data.error || 'Impossible de récupérer le flux.');
             if (data.stream_url) {
                 currentVODUrl = kickUrl;
+                const playbackUrl = shouldUseDirectTwitchPlayback(data) ? data.direct_stream_url : data.stream_url;
                 // URL partageables : met à jour l'URL du navigateur
                 const vodTitle = data.metadata?.session_title || 'Kick VOD';
                 history.pushState({ vodUrl: kickUrl }, vodTitle, `?vod=${encodeURIComponent(kickUrl)}`);
                 hidePlayerLoading();
-                initializePlayer(data.stream_url, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id, data.storyboard);
+                initializePlayer(playbackUrl, data.metadata, data.channel, !!data.is_clip, !!data.is_twitch, data.vod_id, data.storyboard);
                 window.currentDownloadUrl = data.download_url || null;
                 if (data.is_clip) {
                     clearRelatedVods();
@@ -414,14 +556,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function preloadVOD(url) {
+        // Préchauffe le cache serveur pour la prochaine VOD via les vraies routes
+        // (résolution + mise en cache), pour un clic quasi instantané ensuite.
         if (!url) return;
-        let apiUrl = '';
-        if (url.includes('kick.com/')) apiUrl = `/api/kick/stream?url=${encodeURIComponent(url)}`;
-        else if (url.includes('twitch.tv/')) {
-            const m = url.match(/videos\/(\d+)/);
-            if (m) apiUrl = `/api/twitch/resolve?vod_id=${m[1]}`;
-        }
-        if (apiUrl) fetch(apiUrl).catch(() => {}); // fetch silently and cache by browser
+        try {
+            if (url.includes('twitch.tv/')) {
+                const m = url.match(/videos\/(\d+)/);
+                if (m) fetch(`/api/twitch/master/${m[1]}.m3u8`).catch(() => {});
+            } else if (url.includes('kick.com/')) {
+                fetch('/api/get_stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url }),
+                }).catch(() => {});
+            }
+        } catch (_) { /* silencieux */ }
     }
 
     function renderRelatedVods(currentUrl) {
@@ -466,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="vod-result-title">${escapeHtml(vod.title)}</div>
                             <div class="vod-result-meta">
                                 ${vod.date ? `<span>${timeAgo(vod.date.replace(' ', 'T') + 'Z')}</span>` : ''}
-                                ${vod.views ? `<span>${vod.views.toLocaleString('fr-FR')} vues</span>` : ''}
+                                ${vod.views ? `<span>${formatNumber(vod.views)} ${t('views')}</span>` : ''}
                             </div>
                         </div>
                     </div>`;
@@ -498,6 +647,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playerSection) { playerSection.style.display = 'block'; window.scrollTo(0, 0); }
 
         window.currentM3U8Url = m3u8Url;
+        window.currentPlatform = isTwitch ? 'twitch' : 'kick';
+        currentTwitchVodId = isTwitch ? twitchVodId : null;
         setupPlayerControls();
 
         if (metadata && channel && streamInfo) {
@@ -507,7 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chatChannelId = channel.id;
 
             saveToHistory(
-                urlInput?.value || '',
+                currentVODUrl || urlInput?.value || '',
                 metadata.session_title || 'Kick VOD',
                 channel.slug,
                 channel.profile_pic,
@@ -515,10 +666,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 metadata.duration || 0
             );
 
-            const views = metadata.views ? metadata.views.toLocaleString('fr-FR') : 'N/A';
-            const date  = metadata.start_time
-                ? new Date(metadata.start_time.replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
-                : '';
+            const views = metadata.views ? formatNumber(metadata.views) : 'N/A';
+            const date  = formatDate(metadata.start_time);
 
             streamInfo.innerHTML = `
                 <img src="${escapeHtml(channel.profile_pic || '')}" alt="${escapeHtml(channel.slug)}"
@@ -547,9 +696,11 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('quality-select-player')?.addEventListener('change', e => {
                 if (!hls) return;
                 const idx = parseInt(e.target.value);
+                if (idx === -1) applyAutoQualityCap();
+                else hls.autoLevelCapping = -1;
                 hls.currentLevel = idx;
                 const label = idx === -1
-                    ? 'Automatique'
+                    ? autoQualityLabel()
                     : (hls.levels[idx]?.height ? `${hls.levels[idx].height}p` : `Niveau ${idx + 1}`);
                 showToast('success', 'Qualité', label, 2500);
             });
@@ -558,10 +709,16 @@ document.addEventListener('DOMContentLoaded', () => {
             currentVODMeta = {
                 url: currentVODUrl,
                 title: metadata.session_title || 'Kick VOD',
-                streamer: channel.slug,
+                streamer: channel.slug || channel.login || channel.name || channel.display_name || 'streamer',
                 avatar: channel.profile_pic || '',
                 thumbnail: (metadata.thumbnail || {}).src || '',
-                duration: metadata.duration || 0
+                duration: metadata.duration || 0,
+                date: metadata.start_time || '',
+                is_twitch: isTwitch,
+                channel: {
+                    slug: channel.slug || channel.login || channel.name || '',
+                    name: channel.name || channel.display_name || channel.slug || channel.login || ''
+                }
             };
 
             // Dynamic meta tags
@@ -592,6 +749,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     populateQualityLevels();
+                    applyAutoQualityCap();
                     
                     const timecodeParam = new URLSearchParams(window.location.search).get('t');
                     const saved = getSavedProgress(currentVODUrl);
@@ -689,12 +847,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window._chatStarted = false;
+    function isChatPlaybackModeActive() {
+        return document.body.classList.contains('split-view-active') ||
+            document.getElementById('vod-chat-sidebar')?.classList.contains('is-overlay');
+    }
+
     function tryStartChat() {
-        if (window._chatStarted || !document.body.classList.contains('split-view-active')) return;
+        if (window._chatStarted || !isChatPlaybackModeActive()) return;
         window._chatStarted = true;
         chatActiveSession++;
-        if (window.currentPlatform === 'twitch' && twitchVodId) {
-            startTwitchChat(twitchVodId, chatActiveSession);
+        if (window.currentPlatform === 'twitch' && currentTwitchVodId) {
+            startTwitchChat(currentTwitchVodId, chatActiveSession);
         } else if (window.currentPlatform === 'kick') {
             startChatLoop(chatActiveSession);
         }
@@ -1426,12 +1589,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- Chat Overlay (Mobile/Theater) ---
         const chatOverlayBtn = $('chat-overlay-btn');
         chatOverlayBtn?.addEventListener('click', () => {
-            const sidebar = $('vod-chat-sidebar');
-            const wrapper = $('video-wrapper-container');
+            const sidebar = document.getElementById('vod-chat-sidebar');
+            const wrapper = document.getElementById('video-wrapper-container');
             if (!sidebar || !wrapper) return;
             sidebar.classList.toggle('is-overlay');
             if (sidebar.classList.contains('is-overlay')) {
                 wrapper.appendChild(sidebar);
+                if (typeof tryStartChat === 'function') tryStartChat();
             } else {
                 document.querySelector('.player-layout').appendChild(sidebar);
             }
@@ -1439,12 +1603,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Show chat overlay button only if window is mobile or theater
         function updateChatOverlayBtnVisibility() {
-            if (window.innerWidth <= 768 || playerSection?.classList.contains('theater-mode')) {
+            const isPhoneLandscape = window.innerWidth <= 920 && window.innerHeight <= 520;
+            if (window.innerWidth <= 768 || isPhoneLandscape || playerSection?.classList.contains('theater-mode')) {
                 chatOverlayBtn.style.display = '';
             } else {
                 chatOverlayBtn.style.display = 'none';
                 // Reset overlay if exiting
-                const sidebar = $('vod-chat-sidebar');
+                const sidebar = document.getElementById('vod-chat-sidebar');
                 if (sidebar && sidebar.classList.contains('is-overlay')) {
                     sidebar.classList.remove('is-overlay');
                     document.querySelector('.player-layout').appendChild(sidebar);
@@ -1456,17 +1621,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- Download ---
         $('download-btn')?.addEventListener('click', () => {
-            if (!currentVODMeta || !currentVODMeta.download_url) {
-                showToast('error', 'Erreur', 'Lien de téléchargement introuvable.');
-                return;
-            }
-            if (currentVODMeta.download_url.endsWith('.m3u8')) {
-                navigator.clipboard.writeText(currentVODMeta.download_url).then(() => {
-                    showToast('success', 'Lien copié !', 'Le lien brut M3U8 a été copié. Utilisez VLC ou un téléchargeur pour l\'enregistrer.', 5000);
-                });
-            } else {
-                window.open(currentVODMeta.download_url, '_blank');
-            }
+            openDownloadModal();
         });
 
         function showTheaterHint() {
@@ -1552,11 +1707,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Populate HLS Quality Levels ─────────
+    function autoQualityLabel() {
+        const height = Number(playbackSetting('default_quality_height', 720));
+        return height > 0 ? `Auto (≤${height}p)` : 'Auto';
+    }
+
+    function applyAutoQualityCap() {
+        if (!hls || !hls.levels?.length) return;
+        const maxHeight = Number(playbackSetting('default_quality_height', 720));
+        if (!maxHeight || maxHeight <= 0) {
+            hls.autoLevelCapping = -1;
+            return;
+        }
+        const levels = hls.levels.map((level, index) => ({
+            index,
+            height: Number(level.height || 0)
+        }));
+        const capped = levels
+            .filter(level => level.height > 0 && level.height <= maxHeight)
+            .sort((a, b) => b.height - a.height)[0];
+        const fallbackLowest = levels
+            .filter(level => level.height > 0)
+            .sort((a, b) => a.height - b.height)[0];
+        hls.autoLevelCapping = (capped || fallbackLowest)?.index ?? -1;
+    }
+
     function populateQualityLevels() {
         if (!hls || !hls.levels?.length) return;
         const sorted = hls.levels.map((l, i) => ({ ...l, index: i }))
             .sort((a, b) => (b.height || 0) - (a.height || 0));
-        const opts = `<option value="-1">Auto</option>` +
+        const opts = `<option value="-1">${autoQualityLabel()}</option>` +
             sorted.map(l => `<option value="${l.index}">${l.height ? `${l.height}p` : `Niveau ${l.index + 1}`}</option>`).join('');
         const deskSel = document.getElementById('quality-select-player');
         if (deskSel) {
@@ -1569,7 +1749,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!mobSel.dataset.wired) {
                 mobSel.addEventListener('change', e => {
                     if (hls) {
-                        hls.currentLevel = parseInt(e.target.value);
+                        const idx = parseInt(e.target.value);
+                        if (idx === -1) applyAutoQualityCap();
+                        else hls.autoLevelCapping = -1;
+                        hls.currentLevel = idx;
                         const d = document.getElementById('quality-select-player');
                         if (d) d.value = e.target.value;
                     }
@@ -1804,12 +1987,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderTwitchChat() {
         if (!chatList || !video) return;
-        const t = video.currentTime;
+        const currentTime = video.currentTime;
         const existing = new Set();
         chatList.querySelectorAll('.chat-message[data-id]').forEach(el => existing.add(el.dataset.id));
         let appended = false;
+        let hasFutureMessages = false;
         twitchChatBuf.forEach(c => {
-            if (c.offset > t || existing.has(String(c.id))) return;
+            if (c.offset > currentTime) {
+                hasFutureMessages = true;
+                return;
+            }
+            if (existing.has(String(c.id))) return;
             chatList.querySelector('.chat-status')?.remove();
             const color = resolveUsernameColor(c.color);
             const badges = (c.badges || []).map(b =>
@@ -1826,12 +2014,16 @@ document.addEventListener('DOMContentLoaded', () => {
             appended = true;
         });
         while (chatList.children.length > 150) chatList.removeChild(chatList.firstChild);
+        const status = chatList.querySelector('.chat-status');
+        if (status && twitchChatBuf.length && hasFutureMessages) {
+            status.textContent = t('chat_waiting_messages', 'Messages à venir...');
+        }
         if (appended && !isUserScrolled) chatList.scrollTop = chatList.scrollHeight;
     }
 
     // ── Streamer Search ─────────────────────
     function formatDuration(ms) {
-        if (!ms) return '';
+        if (ms === null || ms === undefined || Number.isNaN(Number(ms))) return '';
         // Kick API returns duration in milliseconds
         const seconds = Math.floor(ms / 1000);
         const h = Math.floor(seconds / 3600);
@@ -1839,13 +2031,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const s = Math.floor(seconds % 60);
         if (h > 0) return `${h}h${String(m).padStart(2, '0')}`;
         return `${m}:${String(s).padStart(2, '0')}`;
-    }
-
-    function formatVodDate(dateStr) {
-        if (!dateStr) return '';
-        try {
-            return new Date(dateStr.replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
-        } catch (_) { return ''; }
     }
 
     const tabUrl      = document.getElementById('tab-url');
@@ -1963,7 +2148,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="vod-result-title">${escapeHtml(vod.title)}</div>
                             <div class="vod-result-meta">
                                 ${vod.date ? `<span>${timeAgo(vod.date.replace(' ', 'T') + 'Z')}</span>` : ''}
-                                ${vod.views ? `<span>${vod.views.toLocaleString('fr-FR')} vues</span>` : ''}
+                                ${vod.views ? `<span>${formatNumber(vod.views)} ${t('views')}</span>` : ''}
                             </div>
                         </div>
                     </div>`;
@@ -2083,7 +2268,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (_trendingLoaded && !force) { section.style.display = ''; return; }
         
         section.style.display = '';
-        loadTrendingGrid(gridKick, 'kick');
+        const activeTab = section.querySelector('.trending-tab.is-active')?.dataset.tab || 'kick-trending';
+        loadTrendingGrid(activeTab === 'twitch-trending' ? gridTwitch : gridKick, activeTab === 'twitch-trending' ? 'twitch' : 'kick');
         
         async function loadTrendingGrid(targetGrid, platform) {
             if (targetGrid.children.length > 0 && targetGrid.querySelector('.vod-result-card, .recent-history-card') && !force) return;
@@ -2094,7 +2280,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res  = await fetch(`/api/trending?platform=${platform}&lang=${lang}`);
                 const data = await res.json();
                 const vods = data.trending || [];
-                if (!vods.length) { targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">Aucune tendance.</div>`; return; }
+                if (!vods.length) { targetGrid.innerHTML = `<div class="vods-status" style="grid-column:1/-1;">${t('no_trending')}</div>`; return; }
                 
                 targetGrid.innerHTML = vods.map(item => {
                     const dur = item.duration ? formatDuration(item.duration) : '';
@@ -2119,7 +2305,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
                                 <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                             </div>
-                            ${item.views ? `<p class="history-date">${item.views.toLocaleString('fr-FR')} vues</p>` : ''}
+                            ${item.views ? `<p class="history-date">${formatNumber(item.views)} ${t('views')}</p>` : ''}
                         </div>
                     </a>`;
                 }).join('');
@@ -2188,7 +2374,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (diff < 3600) return `Il y a ${Math.floor(diff / 60)} min`;
         if (diff < 86400) return `Il y a ${Math.floor(diff / 3600)}h`;
         if (diff < 604800) return `Il y a ${Math.floor(diff / 86400)} jour${Math.floor(diff / 86400) > 1 ? 's' : ''}`;
-        return new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+        return formatDate(dateStr, { day: 'numeric', month: 'short' });
     }
 
     function renderHistory(filter = '') {
@@ -2350,7 +2536,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVODMeta && currentVODMeta.is_twitch) {
             const twCache = sessionStorage.getItem('tw:' + (currentVODMeta.channel?.slug || currentVODMeta.channel?.name || ''));
             if (twCache) {
-                try { playlist = JSON.parse(twCache).vods || []; } catch(e){}
+                try { playlist = JSON.parse(twCache).vods || []; } catch {}
             }
         }
         const currentIdx = playlist.findIndex(v => v.url === currentVODUrl);
@@ -2540,10 +2726,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    document.getElementById('btn-download')?.addEventListener('click', () => {
+    function openDownloadModal() {
         if (!window.currentM3U8Url) {
             showToast('error', 'Erreur', t('download_not_ready'), 3000);
-            return;
+            return false;
         }
         // URL de téléchargement : préfère l'URL brute CloudFront (Twitch) si dispo
         const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
@@ -2559,6 +2745,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('download-ffmpeg-input').value = ffmpegCmd;
         
         document.getElementById('download-modal').style.display = 'flex';
+        return true;
+    }
+
+    document.getElementById('btn-download')?.addEventListener('click', () => {
+        openDownloadModal();
     });
 
     // ── Bookmark ──
@@ -2605,6 +2796,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${h}:${m}:${s}`;
     }
 
+    function parseTimeFFmpeg(value) {
+        const parts = String(value || '').split(':').map(n => parseInt(n, 10));
+        if (parts.some(n => Number.isNaN(n))) return 0;
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        if (parts.length === 2) return parts[0] * 60 + parts[1];
+        return parts[0] || 0;
+    }
+
+    function normalizeClipRange() {
+        const startInput = document.getElementById('clip-start-input');
+        const endInput = document.getElementById('clip-end-input');
+        if (!startInput || !endInput) return { start: '00:00:00', end: '00:00:10' };
+        const start = Math.max(0, parseTimeFFmpeg(startInput.value));
+        let end = Math.max(0, parseTimeFFmpeg(endInput.value));
+        if (end <= start) {
+            end = start + 10;
+            endInput.value = formatTimeFFmpeg(end);
+        }
+        startInput.value = formatTimeFFmpeg(start);
+        return { start: startInput.value, end: endInput.value };
+    }
+
     document.getElementById('btn-clip-set-start')?.addEventListener('click', () => {
         if(video) {
             document.getElementById('clip-start-input').value = formatTimeFFmpeg(video.currentTime);
@@ -2623,15 +2836,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateClipperCmd() {
         const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
-        const st = document.getElementById('clip-start-input').value || '00:00:00';
-        const ed = document.getElementById('clip-end-input').value || '00:00:10';
+        const range = normalizeClipRange();
+        const st = range.start;
+        const ed = range.end;
         const cmd = `ffmpeg -ss ${st} -to ${ed} -i "${dlUrl}" -c copy "clip.mp4"`;
         document.getElementById('clipper-cmd-input').value = cmd;
     }
     document.getElementById('btn-copy-clipper-cmd')?.addEventListener('click', () => {
         const i = document.getElementById('clipper-cmd-input');
-        navigator.clipboard.writeText(i.value).then(() => {
+        copyText(i.value, i).then(() => {
             showToast('success', 'Commande copiée', 'Collez-la dans votre terminal', 3000);
+        }).catch(() => {
+            handleCopyFailure(i.value, i);
         });
     });
 
@@ -2641,10 +2857,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btn-copy-link')?.addEventListener('click', () => {
         const shareUrl = `${location.origin}${location.pathname}?vod=${encodeURIComponent(currentVODUrl || '')}`;
-        navigator.clipboard.writeText(shareUrl).then(() => {
+        copyText(shareUrl).then(() => {
             showToast('success', 'Lien copié !', shareUrl, 3000);
         }).catch(() => {
-            showToast('error', 'Erreur', 'Impossible de copier dans le presse-papier.', 3000);
+            handleCopyFailure(shareUrl);
         });
     });
 
@@ -2652,23 +2868,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!video || !currentVODUrl) return;
         const t = Math.floor(video.currentTime);
         const shareUrl = `${location.origin}${location.pathname}?vod=${encodeURIComponent(currentVODUrl)}&t=${t}`;
-        navigator.clipboard.writeText(shareUrl).then(() => {
+        copyText(shareUrl).then(() => {
             showToast('success', 'Timecode copié !', shareUrl, 3000);
-        }).catch(() => {});
+        }).catch(() => {
+            handleCopyFailure(shareUrl);
+        });
     });
 
     document.getElementById('btn-report-bug')?.addEventListener('click', () => {
         const platform = currentVODMeta?.is_twitch ? 'Twitch' : 'Kick';
-        const body = encodeURIComponent(`Bonjour,\n\nJe rencontre un problème avec cette VOD :\nURL: ${currentVODUrl}\nPlateforme: ${platform}\nNavigateur: ${navigator.userAgent}\n\nDescription du problème : `);
+        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown';
+        const body = encodeURIComponent(`Bonjour,\n\nJe rencontre un problème avec cette VOD :\nURL: ${currentVODUrl}\nPlateforme: ${platform}\nNavigateur: ${userAgent}\n\nDescription du problème : `);
         window.location.href = `mailto:admin@kicknosub.com?subject=Bug Report - KickNoSub&body=${body}`;
-    });
-
-    document.getElementById('btn-share')?.addEventListener('click', () => {
-        if (navigator.share) {
-            navigator.share({ title: 'KickNoSub VOD', url: window.location.href });
-        } else {
-            prompt('Copiez ce lien:', window.location.href);
-        }
     });
 
     document.getElementById('btn-split-view')?.addEventListener('click', () => {
@@ -2688,12 +2899,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const copyInput = (inputId, btnId) => {
         const input = document.getElementById(inputId);
-        navigator.clipboard.writeText(input.value).then(() => {
+        if (!input) return;
+        copyText(input.value, input).then(() => {
             const btn = document.getElementById(btnId);
             const origText = btn.innerText;
             btn.innerText = t('copied');
             setTimeout(() => btn.innerText = origText, 2000);
             showToast('success', t('copied'), t('copied_clipboard'), 2000);
+        }).catch(() => {
+            handleCopyFailure(input.value, input);
         });
     };
 
@@ -2702,15 +2916,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btn-share')?.addEventListener('click', () => {
         const shareUrl = `${location.origin}${location.pathname}?vod=${encodeURIComponent(currentVODUrl || '')}`;
-        if (navigator.share) {
+        if (typeof navigator !== 'undefined' && navigator.share) {
             navigator.share({
                 title: currentVODMeta?.title || 'Kick VOD',
                 text: `Regarde cette rediff de ${currentVODMeta?.streamer || ''} sur KickNoSub !`,
                 url: shareUrl
             }).catch(() => {});
         } else {
-            navigator.clipboard.writeText(shareUrl).then(() => {
+            copyText(shareUrl).then(() => {
                 showToast('success', 'Lien copié !', 'Web Share non disponible — lien copié à la place.', 3000);
+            }).catch(() => {
+                handleCopyFailure(shareUrl);
             });
         }
     });
@@ -2803,6 +3019,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Charger une VOD depuis l'URL si ?vod= présent
+    loadAppConfig();
+
     const urlParams = new URLSearchParams(window.location.search);
     const vodFromUrl = urlParams.get('vod');
     if (vodFromUrl && /kick\.com\/|twitch\.tv\//.test(vodFromUrl)) {
@@ -2824,10 +3042,6 @@ document.addEventListener('DOMContentLoaded', () => {
         a.download = 'kicknosub_favorites.json';
         a.click();
         URL.revokeObjectURL(url);
-    });
-
-    document.getElementById('btn-close-status-modal')?.addEventListener('click', () => {
-        document.getElementById('status-modal').style.display = 'none';
     });
 
     // --- Modal Legal ---
@@ -2857,7 +3071,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     showToast('error', 'Erreur', 'Fichier JSON invalide.', 3000);
                 }
-            } catch (err) {
+            } catch {
                 showToast('error', 'Erreur', 'Impossible de lire le fichier.', 3000);
             }
         };
@@ -2877,14 +3091,24 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/status');
             const data = await res.json();
+            const statusPill = (ok) => `<span style="color:${ok ? '#00e676' : '#ff4444'}; font-weight:700;">${ok ? 'OK' : 'DOWN'}</span>`;
+            const row = (label, value) => `<div style="display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.08);"><strong>${escapeHtml(label)}</strong><span>${value}</span></div>`;
+            const services = data.services || {};
+            const playback = data.playback || {};
             content.innerHTML = `
-                <div style="margin-bottom:10px;"><strong>App Status:</strong> <span style="color:${data.status === 'online' ? '#00e676' : '#ff4444'}">${data.status.toUpperCase()}</span></div>
-                <div style="margin-bottom:10px;"><strong>Version:</strong> ${data.version || 'Unknown'}</div>
-                <div style="margin-bottom:10px;"><strong>Kick API:</strong> <span style="color:${data.services?.kick ? '#00e676' : '#ff4444'}">${data.services?.kick ? 'OK' : 'DOWN'}</span></div>
-                <div style="margin-bottom:10px;"><strong>Twitch API:</strong> <span style="color:${data.services?.twitch ? '#00e676' : '#ff4444'}">${data.services?.twitch ? 'OK' : 'DOWN'}</span></div>
-                <div style="margin-bottom:10px;"><strong>Cache Entries:</strong> ${data.cache_keys || 0}</div>
+                ${row('App', `<span style="color:${data.status === 'online' ? '#00e676' : '#f59e0b'}; font-weight:700;">${escapeHtml(String(data.status || 'unknown').toUpperCase())}</span>`)}
+                ${row('Version', escapeHtml(data.version || 'Unknown'))}
+                ${row('Kick', statusPill(!!services.kick))}
+                ${row('Twitch', statusPill(!!services.twitch))}
+                ${row('Chat', statusPill(!!services.chat))}
+                ${row('Proxy', statusPill(!!services.proxy))}
+                ${row('Téléchargements', statusPill(!!services.downloads))}
+                ${row('Cache', escapeHtml(String(data.cache_keys || 0)))}
+                ${row('Auto qualité', `${escapeHtml(String(playback.default_quality_height || 720))}p`)}
+                ${row('Proxy max', `${escapeHtml(String(playback.max_proxy_quality_height || 720))}p`)}
+                ${row('Direct Safari/iOS', playback.direct_twitch_native_hls ? 'ON' : 'OFF')}
             `;
-        } catch (err) {
+        } catch {
             content.innerHTML = `<span style="color:#ff4444;">Erreur de connexion au serveur.</span>`;
         }
     });
@@ -2904,9 +3128,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Dummy data replacement block
     document.getElementById('btn-export-data')?.addEventListener('click', () => {
         const data = {
-            ksn_history: localStorage.getItem('ksn_history'),
+            kicknosub_history: localStorage.getItem('kicknosub_history'),
             ksn_favorites: localStorage.getItem('ksn_favorites'),
-            ksn_progress: localStorage.getItem('ksn_progress')
+            ksn_progress: localStorage.getItem('ksn_progress'),
+            kicknosub_bookmarks: localStorage.getItem('kicknosub_bookmarks')
         };
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -2928,11 +3153,12 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.onload = (ev) => {
             try {
                 const data = JSON.parse(ev.target.result);
-                if (data.ksn_history) {
-                    const current = JSON.parse(localStorage.getItem('ksn_history') || '[]');
-                    const imported = JSON.parse(data.ksn_history);
+                const importedHistoryRaw = data.kicknosub_history || data.ksn_history;
+                if (importedHistoryRaw) {
+                    const current = JSON.parse(localStorage.getItem('kicknosub_history') || '[]');
+                    const imported = JSON.parse(importedHistoryRaw);
                     const merged = [...current, ...imported].filter((v, i, a) => a.findIndex(t => (t.url === v.url)) === i);
-                    localStorage.setItem('ksn_history', JSON.stringify(merged));
+                    localStorage.setItem('kicknosub_history', JSON.stringify(merged));
                 }
                 if (data.ksn_favorites) {
                     const current = JSON.parse(localStorage.getItem('ksn_favorites') || '[]');
@@ -2945,10 +3171,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     const imported = JSON.parse(data.ksn_progress);
                     localStorage.setItem('ksn_progress', JSON.stringify({ ...current, ...imported }));
                 }
-                alert('Données importées avec succès !');
+                if (data.kicknosub_bookmarks) {
+                    const current = JSON.parse(localStorage.getItem('kicknosub_bookmarks') || '[]');
+                    const imported = JSON.parse(data.kicknosub_bookmarks);
+                    const merged = [...current, ...imported].filter((v, i, a) => a.findIndex(t => (t.url === v.url && t.time === v.time)) === i);
+                    localStorage.setItem('kicknosub_bookmarks', JSON.stringify(merged));
+                }
+                alert(t('data_import_success'));
                 location.reload();
-            } catch (err) {
-                alert('Fichier invalide.');
+            } catch {
+                alert(t('data_import_invalid'));
             }
         };
         reader.readAsText(file);

@@ -64,6 +64,17 @@ def test_api_responses_not_stored(client):
     assert r.headers.get('Cache-Control') == 'no-store'
 
 
+def test_status_exposes_core_services_and_playback(client):
+    r = client.get('/api/status')
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["version"] == "1.4.0"
+    assert {"kick", "twitch", "chat", "proxy", "downloads"} <= set(data["services"])
+    assert data["playback"]["default_quality_height"] == 720
+    assert data["playback"]["max_proxy_quality_height"] == 720
+    assert data["playback"]["direct_twitch_native_hls"] is True
+
+
 # ── Twitch ──
 
 def test_get_stream_rejects_unknown_platform(client):
@@ -126,4 +137,3 @@ def test_get_stream_accepts_clips_twitch_tv(client):
     r = client.post('/api/get_stream', json={'url': 'https://clips.twitch.tv/TestSlug'})
     # 404 (clip not found on Twitch) is OK — the important thing is it's NOT 400 (invalid platform)
     assert r.status_code != 400
-

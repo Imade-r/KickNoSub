@@ -17,14 +17,60 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static')
+APP_VERSION = "1.4.0"
+
+DEFAULT_CONFIG = {
+    "features": {
+        "enable_twitch": True,
+        "enable_kick": True,
+        "enable_downloads": True,
+        "enable_chat": True,
+    },
+    "monitoring": {"check_interval_seconds": 600},
+    "playback": {
+        "default_quality_height": 720,
+        "max_proxy_quality_height": 720,
+        "direct_twitch_native_hls": True,
+    },
+}
 
 def get_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.json')
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            raw = json.load(f)
     except Exception:
-        return {"features": {"enable_twitch": True, "enable_kick": True, "enable_downloads": True, "enable_chat": True}, "monitoring": {"check_interval_seconds": 600}}
+        raw = {}
+
+    config = json.loads(json.dumps(DEFAULT_CONFIG))
+    for section, values in (raw or {}).items():
+        if isinstance(values, dict) and isinstance(config.get(section), dict):
+            config[section].update(values)
+        else:
+            config[section] = values
+    return config
+
+
+def _playback_config():
+    return get_config().get("playback", {})
+
+
+def _variant_height(variant):
+    try:
+        return int(str(variant.get("resolution", "0x0")).split("x", 1)[1])
+    except Exception:
+        return 0
+
+
+def _cap_variants_by_height(variants, max_height):
+    try:
+        max_height = int(max_height)
+    except Exception:
+        max_height = 0
+    if max_height <= 0:
+        return variants
+    capped = [v for v in variants if _variant_height(v) and _variant_height(v) <= max_height]
+    return capped or variants[-1:]
 
 # Limite la taille des corps de requête (anti-abus / déni de service).
 app.config['MAX_CONTENT_LENGTH'] = 256 * 1024  # 256 Ko
@@ -59,6 +105,7 @@ def maybe_limit(rule):
 CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+    "worker-src 'self' blob:; "  # hls.js crée son démuxeur dans un Web Worker (blob)
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data: blob: https:; "
     "media-src 'self' blob: https:; "
@@ -397,6 +444,7 @@ def _twitch_stream_response(url):
     best_variant = result["variants"][0]["url"] if result.get("variants") else None
     return jsonify({
         "stream_url": f"/api/twitch/master/{vod_id}.m3u8",
+        "direct_stream_url": best_variant,
         "is_twitch": True,
         "vod_id": vod_id,
         "storyboard": result.get("storyboard"),
@@ -425,8 +473,10 @@ def twitch_master(vod_id):
     result = _resolve_twitch_cached(vod_id)
     if "error" in result:
         return result["error"], 404
+    playback = _playback_config()
+    variants = _cap_variants_by_height(result["variants"], playback.get("max_proxy_quality_height", 720))
     proxy = lambda u: "/api/twitch/playlist?u=" + quote(u, safe="")
-    playlist = twitch.build_master_playlist(result["variants"], proxy)
+    playlist = twitch.build_master_playlist(variants, proxy)
     return app.response_class(playlist, mimetype="application/vnd.apple.mpegurl")
 
 
@@ -730,20 +780,39 @@ def get_trending():
 @app.route('/api/status', methods=['GET'])
 def get_status():
     try:
-        # Quick check if twitch module has GQL Client
-        twitch_ok = hasattr(twitch, 'GQL_CLIENT_ID')
-        # Quick check if kick channel endpoint is reachable
-        # We just assume True if scraper exists for now
-        kick_ok = scraper is not None
+        config = get_config()
+        features = config.get("features", {})
+        playback = config.get("playback", {})
+        twitch_ok = bool(features.get("enable_twitch", True) and hasattr(twitch, 'GQL_CLIENT_ID'))
+        kick_ok = bool(features.get("enable_kick", True) and scraper is not None)
+        chat_ok = bool(features.get("enable_chat", True) and (kick_ok or twitch_ok))
+        proxy_ok = bool(scraper is not None and hasattr(twitch, 'is_allowed_proxy_url'))
+        downloads_ok = bool(features.get("enable_downloads", True))
+
+        with _cache_lock:
+            monitor_snapshot = {
+                "last_check": monitor_status.get("last_check"),
+                "kick": monitor_status.get("kick_ok"),
+                "twitch": monitor_status.get("twitch_ok"),
+            }
         
         return jsonify({
-            "status": "online",
-            "version": "1.3.0",
+            "status": "online" if all([kick_ok, twitch_ok, chat_ok, proxy_ok]) else "degraded",
+            "version": APP_VERSION,
             "services": {
                 "kick": kick_ok,
                 "twitch": twitch_ok,
+                "chat": chat_ok,
+                "proxy": proxy_ok,
+                "downloads": downloads_ok,
             },
-            "cache_keys": len(TRENDING_CACHE)
+            "playback": {
+                "default_quality_height": playback.get("default_quality_height", 720),
+                "max_proxy_quality_height": playback.get("max_proxy_quality_height", 720),
+                "direct_twitch_native_hls": playback.get("direct_twitch_native_hls", True),
+            },
+            "cache_keys": len(TRENDING_CACHE) + len(_twitch_cache),
+            "monitor": monitor_snapshot,
         }), 200
     except Exception as e:
         return jsonify({"status": "degraded", "error": str(e)}), 500

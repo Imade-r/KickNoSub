@@ -7,5 +7,10 @@
     },
     "monitoring": {
         "check_interval_seconds": 600
+    },
+    "playback": {
+        "default_quality_height": 720,
+        "max_proxy_quality_height": 720,
+        "direct_twitch_native_hls": true
     }
 }

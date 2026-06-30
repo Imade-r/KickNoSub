@@ -19,7 +19,10 @@ module.exports = [
     },
     rules: {
       "no-undef": "error",
-      "no-unused-vars": "off", // bruyant sur ce gros fichier ; on cible no-undef
+      "no-unused-vars": ["warn", {
+        "argsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }],
     },
   },
   {

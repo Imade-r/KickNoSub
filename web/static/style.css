@@ -6660,6 +6660,7 @@ video::-webkit-media-controls-panel { display: none !important; }
 
 .mobile-only-btn { display: none; }
 @media (max-width: 768px) { .mobile-only-btn { display: inline-flex !important; } }
+@media (max-width: 920px) and (max-height: 520px) { .mobile-only-btn { display: inline-flex !important; } }
 body.split-view-active .player-container { flex-direction: column !important; height: calc(100vh - 140px); overflow: hidden; }
 body.split-view-active .player-card { height: 50% !important; flex: 0 0 50% !important; }
 body.split-view-active .vod-chat-sidebar { height: 50% !important; flex: 0 0 50% !important; border-top: 1px solid var(--border-color); }
