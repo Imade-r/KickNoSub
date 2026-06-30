@@ -825,22 +825,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window._chatStarted = false;
     function isChatPlaybackModeActive() {
-        return document.body.classList.contains('split-view-active') ||
-            document.getElementById('vod-chat-sidebar')?.classList.contains('is-overlay');
+        return document.getElementById('vod-chat-sidebar')?.classList.contains('is-overlay');
     }
 
-    function tryStartChat() {
+    function tryStartChat(force = false) {
         if (window._chatStarted) return;
-        if (!isChatPlaybackModeActive()) {
-            // Le chat n'est chargé qu'en mode chat (split-view desktop / overlay
-            // mobile) pour économiser la bande passante. Sur desktop le panneau
-            // est visible : on invite à l'activer plutôt que de le laisser vide.
+        if (!force && !isChatPlaybackModeActive()) {
+            // Sur desktop, le panneau est visible mais le chat reste opt-in
+            // pour économiser la bande passante.
             if (chatList && !chatList.querySelector('.chat-message')) {
                 chatList.innerHTML =
                     `<div class="chat-status chat-enable-hint" role="button" tabindex="0">` +
                     `${t('chat_enable_hint', 'Cliquez pour charger le chat ▶')}</div>`;
                 chatList.querySelector('.chat-enable-hint')
-                    ?.addEventListener('click', () => document.getElementById('btn-split-view')?.click());
+                    ?.addEventListener('click', () => tryStartChat(true));
             }
             return;
         }
@@ -2873,13 +2871,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown';
         const body = encodeURIComponent(`Bonjour,\n\nJe rencontre un problème avec cette VOD :\nURL: ${currentVODUrl}\nPlateforme: ${platform}\nNavigateur: ${userAgent}\n\nDescription du problème : `);
         window.location.href = `mailto:admin@kicknosub.com?subject=Bug Report - KickNoSub&body=${body}`;
-    });
-
-    document.getElementById('btn-split-view')?.addEventListener('click', () => {
-        document.body.classList.toggle('split-view-active');
-        const isActive = document.body.classList.contains('split-view-active');
-        document.getElementById('btn-split-view').style.color = isActive ? 'var(--accent-primary)' : '';
-        if (isActive && typeof tryStartChat === 'function') tryStartChat();
     });
 
     // Modal de téléchargement handled above
