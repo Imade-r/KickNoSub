@@ -176,39 +176,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showError(msg, retryUrl = null) {
         if (!msg) return;
-        const container = document.querySelector('.toast-container');
-        if (!container) return;
-        const icons = { error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>` };
-        const toast = document.createElement('div');
-        toast.className = 'toast error';
-        toast.innerHTML = `
-            <div class="toast-icon">${icons.error}</div>
-            <div class="toast-content">
-                <div class="toast-title">Erreur</div>
-                <div class="toast-message">${escapeHtml(friendlyError(msg))}</div>
-                ${retryUrl ? `<button class="toast-retry-btn" data-url="${escapeHtml(retryUrl)}">Réessayer</button>` : ''}
-            </div>
-            <button class="toast-close" aria-label="Fermer">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>`;
-        toast.querySelector('.toast-close').addEventListener('click', () => removeToast(toast));
-        const retryBtn = toast.querySelector('.toast-retry-btn');
-        if (retryBtn) {
-            retryBtn.addEventListener('click', () => {
-                removeToast(toast);
-                fetchStreamUrl(retryBtn.dataset.url);
-            });
+        const msgFriendly = friendlyError(msg);
+        
+        const wrapper = document.getElementById('video-wrapper-container');
+        if (wrapper && wrapper.offsetWidth > 0) {
+            let ov = document.getElementById('vod-error-overlay');
+            if (!ov) {
+                ov = document.createElement('div');
+                ov.id = 'vod-error-overlay';
+                ov.className = 'vod-error-overlay';
+                wrapper.appendChild(ov);
+            }
+            ov.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32" style="margin-bottom:12px;opacity:0.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <div style="font-size:1.1rem;margin-bottom:16px;">${escapeHtml(msgFriendly)}</div>
+                ${retryUrl ? `<button class="btn-primary" id="btn-retry-error" style="padding:8px 16px;">Réessayer</button>` : ''}
+            `;
+            ov.style.display = 'flex';
+            
+            if (retryUrl) {
+                document.getElementById('btn-retry-error').addEventListener('click', () => {
+                    ov.style.display = 'none';
+                    fetchStreamUrl(retryUrl);
+                });
+            }
+
+            const loadOv = document.getElementById('vod-switch-overlay');
+            if (loadOv) loadOv.style.display = 'none';
+        } else {
+            const container = document.querySelector('.toast-container');
+            if (!container) return;
+            const icons = { error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>` };
+            const toast = document.createElement('div');
+            toast.className = 'toast error';
+            toast.innerHTML = `
+                <div class="toast-icon">${icons.error}</div>
+                <div class="toast-content">
+                    <div class="toast-title">Oups</div>
+                    <div class="toast-message">${escapeHtml(msgFriendly)}</div>
+                    ${retryUrl ? `<button class="toast-retry-btn" data-url="${escapeHtml(retryUrl)}">Réessayer</button>` : ''}
+                </div>
+                <button class="toast-close" aria-label="Fermer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>`;
+            toast.querySelector('.toast-close').addEventListener('click', () => removeToast(toast));
+            const retryBtn = toast.querySelector('.toast-retry-btn');
+            if (retryBtn) {
+                retryBtn.addEventListener('click', () => {
+                    removeToast(toast);
+                    fetchStreamUrl(retryBtn.dataset.url);
+                });
+            }
+            container.appendChild(toast);
+            setTimeout(() => removeToast(toast), 8000);
         }
-        container.appendChild(toast);
-        setTimeout(() => removeToast(toast), 8000);
     }
 
     function friendlyError(msg) {
-        if (!msg) return 'Une erreur est survenue.';
-        if (/not found|introuvable|404/i.test(msg)) return 'VOD introuvable. Elle est peut-être expirée ou privée.';
-        if (/invalid url|url invalide/i.test(msg)) return 'URL invalide. Colle un lien Kick valide (ex : kick.com/streamer/video/uuid).';
-        if (/offset|stream.*valid/i.test(msg)) return 'Impossible de trouver le flux vidéo. La VOD est peut-être trop ancienne.';
-        if (/network|réseau|fetch/i.test(msg)) return 'Erreur réseau. Vérifie ta connexion et réessaie.';
+        if (!msg) return 'Oups, quelque chose n\'a pas fonctionné.';
+        if (/not found|introuvable|404/i.test(msg)) return 'VOD introuvable. Elle a sûrement été supprimée.';
+        if (/invalid url|url invalide/i.test(msg)) return 'On dirait que le lien n\'est pas tout à fait correct.';
+        if (/offset|stream.*valid/i.test(msg)) return 'Le flux vidéo semble cassé. Réessaie une autre VOD.';
+        if (/network|réseau|fetch|503|500|failed to fetch/i.test(msg)) return 'Twitch/Kick rencontre des lenteurs. Réessaie dans un instant.';
         return msg;
     }
 
@@ -594,11 +623,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (isTwitch && chatList) {
             // Chat replay Twitch (via /api/twitch/chat, synchronisé sur la lecture)
             if (chatSidebar) chatSidebar.style.display = '';
-            chatActiveSession++;
-            startTwitchChat(twitchVodId, chatActiveSession);
+            window._chatStarted = false;
+            tryStartChat();
         } else if (chatList) {
             if (chatSidebar) chatSidebar.style.display = '';
-            chatActiveSession++;
             chatMessages      = [];
             lastRenderedMsgId = null;
             isUserScrolled    = false;
@@ -627,10 +655,23 @@ document.addEventListener('DOMContentLoaded', () => {
             video?.addEventListener('seeking', handleSeeking);
             video?.addEventListener('ended', () => clearProgress(currentVODUrl));
 
-            startChatLoop(chatActiveSession);
+            window._chatStarted = false;
+            tryStartChat();
         }
 
         startChatHeightSync();
+    }
+
+    window._chatStarted = false;
+    function tryStartChat() {
+        if (window._chatStarted || !document.body.classList.contains('split-view-active')) return;
+        window._chatStarted = true;
+        chatActiveSession++;
+        if (window.currentPlatform === 'twitch' && twitchVodId) {
+            startTwitchChat(twitchVodId, chatActiveSession);
+        } else if (window.currentPlatform === 'kick') {
+            startChatLoop(chatActiveSession);
+        }
     }
 
     // ── Resume Prompt ───────────────────────
@@ -2049,7 +2090,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="recent-history-info">
                             <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
                             <div class="history-meta-row">
-                                ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
+                                ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
                                 <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                             </div>
                             ${item.views ? `<p class="history-date">${item.views.toLocaleString('fr-FR')} vues</p>` : ''}
@@ -2193,7 +2234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>
                     </div>
                     <div class="history-meta-row">
-                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
+                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
                         <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                     </div>
                     <p class="history-date">${timeAgo(item.date || item.timestamp)}</p>
@@ -2300,7 +2341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ov.className = 'autonext-overlay';
         ov.innerHTML = `
             <div class="autonext-inner">
-                ${nextVod.thumbnail ? `<img src="${escapeHtml(nextVod.thumbnail)}" class="autonext-thumb" alt="">` : ''}
+                ${nextVod.thumbnail ? `<img src="${escapeHtml(nextVod.thumbnail)}" class="autonext-thumb" alt="" loading="lazy">` : ''}
                 <div class="autonext-info">
                     <p class="autonext-label">${t('autonext_label')}</p>
                     <p class="autonext-title">${escapeHtml(nextVod.title)}</p>
@@ -2439,7 +2480,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="recent-history-info">
                     <h3 class="recent-history-title">${escapeHtml(item.title)}</h3>
                     <div class="history-meta-row">
-                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" onerror="this.style.display='none'">` : ''}
+                        ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" class="history-streamer-avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
                         <span class="recent-history-owner">${escapeHtml(item.streamer)}</span>
                     </div>
                     <p class="history-date">${timeAgo(item.addedAt)}</p>
@@ -2459,6 +2500,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Player action buttons
     document.getElementById('btn-fav')?.addEventListener('click', () => {
         if (currentVODMeta) toggleFavorite(currentVODMeta);
+    });
+
+    document.getElementById('btn-more-actions')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const menu = document.getElementById('more-actions-menu');
+        if (menu) menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    });
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.dropdown-container')) {
+            const menu = document.getElementById('more-actions-menu');
+            if (menu) menu.style.display = 'none';
+        }
     });
 
     document.getElementById('btn-download')?.addEventListener('click', () => {
@@ -2596,33 +2649,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.toggle('split-view-active');
         const isActive = document.body.classList.contains('split-view-active');
         document.getElementById('btn-split-view').style.color = isActive ? 'var(--accent-primary)' : '';
+        if (isActive && typeof tryStartChat === 'function') tryStartChat();
     });
 
-    // Modal de téléchargement
-    const downloadModal = document.getElementById('download-modal');
-    document.getElementById('btn-download')?.addEventListener('click', () => {
-        if (!window.currentM3U8Url) {
-            showToast('error', 'Erreur', t('download_not_ready'), 3000);
-            return;
-        }
-        // URL de téléchargement : préfère l'URL brute CloudFront (Twitch) si dispo
-        const dlUrl = window.currentDownloadUrl || window.currentM3U8Url;
-        document.getElementById('download-m3u8-input').value = dlUrl;
-        
-        // Générer le nom de fichier par défaut (ex: xqc_vod_123.mp4)
-        const streamer = currentVODMeta?.streamer || 'streamer';
-        const dateStr = currentVODMeta?.date ? currentVODMeta.date.split(' ')[0] : 'vod';
-        const filename = `${streamer}_${dateStr}.mp4`.replace(/[^a-zA-Z0-9_.-]/g, '');
-        document.getElementById('download-ffmpeg-input').value = `ffmpeg -i "${dlUrl}" -c copy ${filename}`;
-        
-        downloadModal.style.display = 'flex';
-    });
-
-    document.getElementById('btn-close-download-modal')?.addEventListener('click', () => {
-        downloadModal.style.display = 'none';
-    });
+    // Modal de téléchargement handled above
     
     // Fermer si on clique en dehors du modal
+    const downloadModal = document.getElementById('download-modal');
     downloadModal?.addEventListener('click', (e) => {
         if (e.target === downloadModal) downloadModal.style.display = 'none';
     });

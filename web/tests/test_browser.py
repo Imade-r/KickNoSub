@@ -14,15 +14,13 @@ def test_home_page_language_and_tabs(page: Page):
     # Check title
     expect(page).to_have_title("Regarder les VOD Kick et Twitch sans abonnement | KickNoSub")
     
-    # 1. Change Language to English
-    # Open lang dropdown
-    page.click('#lang-btn')
+    # 1. Change Language to English (les liens de langue sont directs, pas un menu)
     page.click('a[data-lang="en"]')
     # Wait for translation to apply
     time.sleep(1)
-    
+
     # Verify a text changed
-    expect(page.locator('#watch-now-btn span')).to_have_text("Watch Now")
+    expect(page.locator('#watch-now-btn span')).to_have_text("Watch now")
     
     # 2. Check Trending Tabs
     # Click Twitch trending tab
@@ -41,7 +39,7 @@ def test_home_page_language_and_tabs(page: Page):
     time.sleep(0.5)
     
     # Open mobile menu
-    page.click('#mobile-menu-btn')
+    page.click('#mobileMenuToggle')
     # Menu should be visible
     expect(page.locator('.nav-links')).to_be_visible()
     
