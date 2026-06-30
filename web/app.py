@@ -8,8 +8,12 @@ import html as _html
 from urllib.parse import quote, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+import logging
 
 import twitch
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static')
 
@@ -41,18 +45,17 @@ def maybe_limit(rule):
     """Applique une limite si flask-limiter est dispo, sinon décorateur transparent."""
     return limiter.limit(rule) if limiter else (lambda f: f)
 
-# Politique de sécurité du contenu. Permissive sur script/frame/connect pour ne pas
-# casser le lecteur (hls.js), les emotes Kick, les pubs et l'analytics ; mais verrouille
-# object/base/form/frame-ancestors (anti-injection d'objets, anti-détournement de base).
+# Politique de sécurité du contenu. Les flux et images restent ouverts aux CDN vidéo,
+# mais les scripts sont limités à l'application et à hls.js pour éviter les redirections tierces.
 CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
-    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data: blob: https:; "
     "media-src 'self' blob: https:; "
     "connect-src 'self' https:; "
-    "frame-src https:; "
-    "font-src 'self' data:; "
+    "frame-src 'self'; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 )
 
@@ -468,7 +471,7 @@ def twitch_segment():
 @app.route('/api/get_stream', methods=['POST'])
 @maybe_limit("20 per minute")
 def get_stream():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     url = data.get('url', '')
 
     if "twitch.tv" in url or "clips.twitch.tv" in url:
@@ -604,10 +607,19 @@ def _fetch_streamer_latest_vod(slug):
         'avatar':    (channel.get('user') or {}).get('profile_pic', ''),
     }
 
+TRENDING_CACHE = {}
+CACHE_TTL = 600  # 10 minutes
+
 @app.route('/api/trending', methods=['GET'])
 def get_trending():
-    platform = request.args.get('platform', 'kick')
+    platform = request.args.get('platform', 'kick').lower()
     lang = request.args.get('lang', 'en').lower()
+    
+    cache_key = f"{platform}_{lang}"
+    if cache_key in TRENDING_CACHE:
+        data, timestamp = TRENDING_CACHE[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return jsonify({"trending": data}), 200
 
     # Regional top streamers mapping
     streamers_db = {
@@ -624,6 +636,9 @@ def get_trending():
             'en': ['kai_cenat', 'caseoh_', 'tarik', 'jynxzi', 'shroud', 'hasanabi']
         }
     }
+
+    if platform not in streamers_db:
+        return jsonify({"error": "Plateforme invalide"}), 400
 
     # Fallback to English if language not found
     if lang not in streamers_db[platform]:
@@ -643,7 +658,8 @@ def get_trending():
                 v['streamer'] = login
                 v['avatar'] = data.get("streamer", {}).get("avatar", "")
                 return v
-        except Exception:
+        except Exception as e:
+            logger.error(f"[Twitch] Error fetching trending for {login}: {e}")
             pass
         return None
 
@@ -657,8 +673,10 @@ def get_trending():
                 results = executor.map(_fetch_streamer_latest_vod, streamers)
             trending_vods = [v for v in results if v]
             
+        TRENDING_CACHE[cache_key] = (trending_vods, time.time())
         return jsonify({"trending": trending_vods}), 200
     except Exception as e:
+        logger.error(f"[API] Error in get_trending: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':

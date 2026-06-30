@@ -1,15 +1,18 @@
-const CACHE_NAME = 'kicknosub-v2';
+const CACHE_NAME = 'kicknosub-v3';
 const ASSETS = [
     '/',
     '/static/style.css',
+    '/static/lang.js',
     '/static/main.js',
-    '/static/manifest.json'
+    '/static/manifest.json',
+    '/static/logo.png'
 ];
 
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
     );
+    self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
@@ -22,7 +25,7 @@ self.addEventListener('activate', event => {
                     }
                 })
             );
-        })
+        }).then(() => self.clients.claim())
     );
 });
 

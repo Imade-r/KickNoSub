@@ -6642,48 +6642,6 @@ video::-webkit-media-controls-panel { display: none !important; }
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.ad-slot {
-    background: rgba(255, 255, 255, 0.015);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
-}
-
-.ad-slot .ad-label {
-    position: absolute;
-    font-size: 0.62rem;
-    color: rgba(255, 255, 255, 0.18);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    font-weight: 600;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.ad-slot-main {
-    width: 100%;
-    height: 90px;
-    margin: 0 auto;
-    max-width: 728px;
-}
-
-/* Pub sidebar ancrée en bas du chat, ne pousse plus les messages */
-.ad-slot-sidebar {
-    width: 100%;
-    height: 250px;
-    max-height: 38%;
-    flex-shrink: 0;
-    margin: 0;
-    border: none;
-    border-top: 1px solid var(--border-color);
-    border-radius: 0;
-    background: rgba(0, 0, 0, 0.18);
-}
-
 /* Overrides for mobile support banner */
 @media (max-width: 768px) {
     .support-banner {
@@ -6700,166 +6658,12 @@ video::-webkit-media-controls-panel { display: none !important; }
     }
 }
 
-/* ═══════════════════════════════════════════
-   ANTI-ADBLOCK OVERLAY
-═══════════════════════════════════════════ */
-#anti-adblock-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 999999;
-    background: rgba(6, 6, 10, 0.97);
-    backdrop-filter: blur(12px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
+.mobile-only-btn { display: none; }
+@media (max-width: 768px) { .mobile-only-btn { display: inline-flex !important; } }
+body.split-view-active .player-container { flex-direction: column !important; height: calc(100vh - 140px); overflow: hidden; }
+body.split-view-active .player-card { height: 50% !important; flex: 0 0 50% !important; }
+body.split-view-active .vod-chat-sidebar { height: 50% !important; flex: 0 0 50% !important; border-top: 1px solid var(--border-color); }
 
-.anti-adblock-card {
-    background: linear-gradient(145deg, rgba(20, 20, 30, 0.98), rgba(10, 10, 18, 0.99));
-    border: 1px solid rgba(83, 252, 24, 0.25);
-    border-radius: 20px;
-    padding: 40px 36px;
-    max-width: 480px;
-    width: 100%;
-    text-align: center;
-    box-shadow: 0 0 60px rgba(83, 252, 24, 0.08), 0 20px 60px rgba(0,0,0,0.6);
-    animation: fadeInScale 0.3s ease-out;
-}
-
-.anti-adblock-icon {
-    width: 80px;
-    height: 80px;
-    margin: 0 auto 24px;
-    background: rgba(255, 60, 60, 0.12);
-    border: 2px solid rgba(255, 60, 60, 0.3);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #ff4c4c;
-}
-
-.anti-adblock-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    margin: 0 0 12px;
-    color: var(--text-primary);
-}
-
-.anti-adblock-desc {
-    font-size: 0.95rem;
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin: 0 0 28px;
-}
-
-.anti-adblock-desc strong {
-    color: var(--text-primary);
-}
-
-.anti-adblock-steps {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
-    padding: 16px 20px;
-    margin-bottom: 28px;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.anti-adblock-step {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    line-height: 1.4;
-}
-
-.anti-adblock-step strong { color: var(--text-primary); }
-
-.anti-adblock-step-num {
-    flex-shrink: 0;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    color: #000;
-    font-size: 0.75rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 1px;
-}
-
-.anti-adblock-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: linear-gradient(135deg, var(--accent-primary), #3dd10e);
-    color: #000;
-    font-weight: 700;
-    font-size: 1rem;
-    border: none;
-    border-radius: 10px;
-    padding: 14px 28px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 20px rgba(83, 252, 24, 0.35);
-    width: 100%;
-    justify-content: center;
-    margin-bottom: 14px;
-}
-
-.anti-adblock-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(83, 252, 24, 0.5);
-}
-
-.anti-adblock-error {
-    color: #ff4c4c;
-    font-size: 0.875rem;
-    margin: 0 0 12px;
-}
-
-.anti-adblock-reload {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: var(--text-primary);
-    border-radius: 8px;
-    padding: 10px 20px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    width: 100%;
-    margin-bottom: 14px;
-    transition: background 0.2s;
-}
-
-.anti-adblock-reload:hover { background: rgba(255,255,255,0.14); }
-
-.anti-adblock-footer {
-    font-size: 0.78rem;
-    color: rgba(255,255,255,0.25);
-    margin: 0;
-}
- 
- . m o b i l e - o n l y - b t n   {   d i s p l a y :   n o n e ;   }  
- @ m e d i a   ( m a x - w i d t h :   7 6 8 p x )   {   . m o b i l e - o n l y - b t n   {   d i s p l a y :   i n l i n e - f l e x   ! i m p o r t a n t ;   }   }  
- b o d y . s p l i t - v i e w - a c t i v e   . p l a y e r - c o n t a i n e r   {   f l e x - d i r e c t i o n :   c o l u m n   ! i m p o r t a n t ;   h e i g h t :   c a l c ( 1 0 0 v h   -   1 4 0 p x ) ;   o v e r f l o w :   h i d d e n ;   }  
- b o d y . s p l i t - v i e w - a c t i v e   . p l a y e r - c a r d   {   h e i g h t :   5 0 %   ! i m p o r t a n t ;   f l e x :   0   0   5 0 %   ! i m p o r t a n t ;   }  
- b o d y . s p l i t - v i e w - a c t i v e   . v o d - c h a t - s i d e b a r   {   h e i g h t :   5 0 %   ! i m p o r t a n t ;   f l e x :   0   0   5 0 %   ! i m p o r t a n t ;   b o r d e r - t o p :   1 p x   s o l i d   v a r ( - - b o r d e r - c o l o r ) ;   }  
- / *   C h a t   O v e r l a y   M o d e   * /  
- . v o d - c h a t - s i d e b a r . i s - o v e r l a y   {   p o s i t i o n :   a b s o l u t e ;   t o p :   0 ;   r i g h t :   0 ;   h e i g h t :   1 0 0 % ;   w i d t h :   3 2 0 p x ;   z - i n d e x :   2 0 ;   b a c k g r o u n d :   l i n e a r - g r a d i e n t ( t o   r i g h t ,   t r a n s p a r e n t ,   r g b a ( 0 , 0 , 0 , 0 . 8 5 )   4 0 % ) ;   b o r d e r :   n o n e ;   b o r d e r - r a d i u s :   0 ;   p o i n t e r - e v e n t s :   n o n e ;   }  
- . v o d - c h a t - s i d e b a r . i s - o v e r l a y   *   {   p o i n t e r - e v e n t s :   a u t o ;   }  
- . v o d - c h a t - s i d e b a r . i s - o v e r l a y   . c h a t - h e a d e r - t i t l e   {   b a c k g r o u n d :   t r a n s p a r e n t ;   b o r d e r :   n o n e ;   c o l o r :   # f f f ;   t e x t - s h a d o w :   0   1 p x   2 p x   r g b a ( 0 , 0 , 0 , 0 . 8 ) ;   }  
- . v o d - c h a t - s i d e b a r . i s - o v e r l a y   . c h a t - m e s s a g e s   {   m a s k - i m a g e :   l i n e a r - g r a d i e n t ( t o   b o t t o m ,   t r a n s p a r e n t ,   b l a c k   1 0 % ,   b l a c k   9 0 % ,   t r a n s p a r e n t ) ;   - w e b k i t - m a s k - i m a g e :   l i n e a r - g r a d i e n t ( t o   b o t t o m ,   t r a n s p a r e n t ,   b l a c k   1 0 % ,   b l a c k   9 0 % ,   t r a n s p a r e n t ) ;   }  
- . v o d - c h a t - s i d e b a r . i s - o v e r l a y   . c h a t - m e s s a g e   {   b a c k g r o u n d :   t r a n s p a r e n t ;   t e x t - s h a d o w :   0   1 p x   2 p x   r g b a ( 0 , 0 , 0 , 0 . 8 ) ;   c o l o r :   # f f f ;   }  
- @ m e d i a   ( m a x - w i d t h :   7 6 8 p x )   {   . v o d - c h a t - s i d e b a r . i s - o v e r l a y   {   w i d t h :   2 5 0 p x ;   }   }  
- 
 /* Chat Overlay Mode */
 .vod-chat-sidebar.is-overlay {
     position: absolute;
@@ -6879,3 +6683,26 @@ video::-webkit-media-controls-panel { display: none !important; }
 .vod-chat-sidebar.is-overlay .chat-message { background: transparent; text-shadow: 0 1px 2px rgba(0,0,0,0.8); color: #fff; border: none !important; }
 .vod-chat-sidebar.is-overlay .chat-message:hover { background: rgba(255,255,255,0.1); }
 @media (max-width: 768px) { .vod-chat-sidebar.is-overlay { width: 250px; } }
+
+/* Platform Badge on Cards */
+.platform-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 2px 6px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    border-radius: 4px;
+    color: #fff;
+    z-index: 5;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.platform-badge.kick {
+    background-color: var(--accent-primary);
+    color: #000;
+}
+.platform-badge.twitch {
+    background-color: #9146FF;
+}

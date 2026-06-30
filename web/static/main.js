@@ -2022,6 +2022,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <img src="${escapeHtml(item.thumbnail || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
                             <div class="history-thumb-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" style="opacity:0.3"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
                             <div class="history-play-overlay"><svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M8 5v14l11-7z"/></svg></div>
+                            <span class="platform-badge ${platform === 'twitch' ? 'twitch' : 'kick'}">${platform === 'twitch' ? 'Twitch' : 'Kick'}</span>
                             ${dur ? `<span class="history-duration-badge">${escapeHtml(dur)}</span>` : ''}
                             ${pct > 0 ? `<div class="history-progress-bar"><div class="history-progress-fill" style="width:${pct}%"></div></div>` : ''}
                             ${getMiniFavBtn(item)}
@@ -2047,7 +2048,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 _trendingLoaded = true;
             } catch (e) {
                 console.error(e);
-                targetGrid.innerHTML = `<div class="vods-status vods-error">Erreur de chargement: ${escapeHtml(e.message)}</div>`;
+                targetGrid.innerHTML = `<div class="vods-status vods-error">${t('trending_error', 'Service temporairement indisponible. Réessayez dans quelques instants.')}</div>`;
             }
         }
     }
